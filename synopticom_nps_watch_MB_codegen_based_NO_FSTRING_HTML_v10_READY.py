@@ -491,6 +491,19 @@ for tech, st in tech_stats.items():
     top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
 
 
+    # TOP technicians (avg satisfaction score) - current month
+    tech_stats: Dict[str, Dict[str, float]] = {}
+    for r in filt:
+        tech = str(r.get("Technikas", "")).strip()
+        if not tech:
+            continue
+        score = normalize_satisfaction_score(r)
+        if score is None:
+            continue
+        st = tech_stats.setdefault(tech, {"sum": 0.0, "cnt": 0.0})
+        st["sum"] += float(score)
+        st["cnt"] += 1.0
+
     # Previous month TOP technicians
     prev_tech_stats: Dict[str, Dict[str, float]] = {}
     for r in prev_filt:
@@ -510,9 +523,39 @@ for tech, st in tech_stats.items():
         if cnt < min_top_count:
             continue
         avg = st["sum"] / st["cnt"]
-        prev_top.append({"technikas": tech, "avg": round(avg, 2), "count": cnt})
+        prev_top.append({
+            "technikas": tech,
+            "avg": round(avg, 2),
+            "count": cnt
+        })
 
     prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    # Current month TOP with delta vs previous month
+    top = []
+    for tech, st in tech_stats.items():
+        cnt = int(st["cnt"])
+        if cnt < min_top_count:
+            continue
+
+        avg = st["sum"] / st["cnt"]
+
+        prev = next((p for p in prev_top if p["technikas"] == tech), None)
+        prev_avg = prev["avg"] if prev else None
+
+        delta = None
+        if prev_avg is not None:
+            delta = round(avg - prev_avg, 2)
+
+        top.append({
+            "technikas": tech,
+            "avg": round(avg, 2),
+            "count": cnt,
+            "prev_avg": prev_avg,
+            "delta": delta
+        })
+
+    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
 
     return {
         "executor": "Mindaugas Bukauskas",
@@ -703,7 +746,17 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     const prevRows = prev.map((t, i) => `
       <tr>
         <td style="width:44px">${medal(i)}</td>
-        <td><strong>${esc(t.technikas)}</strong></td>
+        <td>
+  <strong>${esc(t.technikas)}</strong><br>
+  <span style="font-size:12px;opacity:.75">
+    ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : ""}
+    ${t.delta !== null
+      ? (t.delta >= 0
+          ? ' <span style="color:#22c55e">▲ +' + esc(t.delta) + '</span>'
+          : ' <span style="color:#ef4444">▼ ' + esc(t.delta) + '</span>')
+      : ""}
+  </span>
+</td>
         <td style="width:84px">${esc(t.avg)}</td>
         <td class="muted" style="width:70px">${esc(t.count)}</td>
       </tr>
