@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: synopticom-kiosk
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python -m playwright install --with-deps chromium
+    startCommand: python app.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.11
+      - key: RUN_WORKER
+        value: 1

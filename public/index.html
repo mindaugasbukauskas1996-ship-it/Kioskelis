@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Atsiliepimai – Technikų TOP</title>
+  <style>
+    html, body { height: 100%; margin: 0; background:#0b0f14; color:#e8eef6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    .wrap { height: 100%; display:flex; flex-direction:column; }
+    header { padding: 16px 20px; display:flex; justify-content:space-between; align-items:baseline; border-bottom:1px solid rgba(255,255,255,.08); }
+    header h1 { margin:0; font-size: 20px; font-weight: 900; letter-spacing:.2px; }
+    header .meta { opacity:.85; font-size: 13px; }
+
+    .stage { flex:1; display:flex; padding: 16px 20px; gap: 16px; }
+    .panel { border:1px solid rgba(255,255,255,.10); border-radius: 18px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,.35); background: rgba(255,255,255,.03); }
+    .top-panel { width: 34%; min-width: 360px; overflow:auto; }
+    .slide-panel { flex: 1; }
+
+    .k { opacity:.75; font-size: 12px; }
+    .k-title { opacity:.92; font-size: 18px; font-weight: 900; letter-spacing:.2px; }
+    .k-title-sub { opacity:.9; font-size: 16px; font-weight: 900; letter-spacing:.2px; }
+    .v { font-size: 16px; font-weight: 650; margin-top: 4px; word-break: break-word; line-height: 1.35; }
+    .big { font-size: 44px; font-weight: 950; letter-spacing: .2px; }
+
+    .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; border:1px solid rgba(255,255,255,.14); font-size: 12px; opacity:.95; background: rgba(255,255,255,.06); }
+
+    .badge { display:inline-block; padding: 6px 10px; border-radius: 12px; font-weight: 900; letter-spacing:.2px; }
+    .b-good { background: rgba(34,197,94,.22); border:1px solid rgba(34,197,94,.35); }
+    .b-mid  { background: rgba(234,179,8,.22); border:1px solid rgba(234,179,8,.35); }
+    .b-bad  { background: rgba(239,68,68,.22); border:1px solid rgba(239,68,68,.35); }
+    .b-na   { background: rgba(148,163,184,.18); border:1px solid rgba(148,163,184,.30); }
+
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(255,255,255,.08); }
+    th { opacity:.7; font-weight:900; font-size: 12px; letter-spacing:.2px; }
+    td { font-size: 15px; }
+    .muted { opacity:.75; }
+
+    .row { display:flex; gap: 12px; align-items:baseline; flex-wrap:wrap; }
+    .divider { height: 12px; }
+
+    .footer { padding: 10px 20px; opacity:.75; font-size: 12px; border-top:1px solid rgba(255,255,255,.08); display:flex; justify-content:space-between; }
+
+    .navbtn {
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 900;
+      letter-spacing:.2px;
+      border:1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color:#e8eef6;
+      transition: transform .06s ease, background .12s ease;
+      user-select:none;
+    }
+    .navbtn:hover { background: rgba(255,255,255,.10); }
+    .navbtn:active { transform: translateY(1px); }
+    .navbtn:focus { outline: 2px solid rgba(255,255,255,.25); outline-offset: 2px; }
+
+
+    @media (min-width: 1600px) {
+      header h1 { font-size: 22px; }
+      td { font-size: 16px; }
+      .v { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Atsiliepimai (kiosk) <span class="pill" id="executorPill"></span></h1>
+    <div class="meta" id="status"></div>
+  </header>
+
+  <div class="stage">
+    <div class="panel top-panel">
+      <div class="row">
+        <div style="font-weight:950">TOP technikai</div>
+        <div class="pill">kriterijus: Pasitenkinimas suteiktomis paslaugomis</div>
+      </div>
+      <div class="divider"></div>
+      <div id="topTable"></div>
+      <div class="divider"></div>
+      <div class="row">
+        <div style="font-weight:900">Praeitas mėnuo</div>
+        <div class="pill" id="prevMonthPill"></div>
+      </div>
+      <div class="divider"></div>
+      <div id="prevTopTable"></div>
+      <div class="divider"></div>
+      <div class="k">Atnaujinta</div>
+      <div class="v" id="updatedInline"></div>
+    </div>
+
+    <div class="panel slide-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="pill" id="slideHint">⬅️ ➡️ arba mygtukai</div>
+        <div style="display:flex;gap:10px;">
+          <button id="prevBtn" class="navbtn" type="button">◀ Atgal</button>
+          <button id="nextBtn" class="navbtn" type="button">Sekanti ▶</button>
+        </div>
+      </div>
+      <div id="slide"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>F11 → fullscreen</div>
+    <div id="updated"></div>
+  </div>
+</div>
+
+<script id="payload" type="application/json">{"executor": "Mindaugas Bukauskas", "lastUpdated": "2026-03-27T13:43:07Z", "month": "2026-03", "topTechnicians": [{"technikas": "Mindaugas Vaišnoras", "avg": 9.5, "count": 2}, {"technikas": "Laimonas Paulauskas", "avg": 5.25, "count": 4}, {"technikas": "Vaidotas Kęsminas, Deividas Arlauskas", "avg": 4.67, "count": 3}, {"technikas": "Romas Sindriūnas E-pas", "avg": 3.83, "count": 6}, {"technikas": "Pavel Kudla", "avg": 3.0, "count": 4}, {"technikas": "Arvydas Venckus", "avg": 2.6, "count": 5}], "prevMonthLabel": "2026-02", "prevTopTechnicians": [{"technikas": "Romas Sindriūnas E-pas", "avg": 5.95, "count": 19}, {"technikas": "Pavel Kudla", "avg": 5.2, "count": 5}, {"technikas": "Laimonas Paulauskas", "avg": 4.33, "count": 9}, {"technikas": "Mindaugas Vaišnoras", "avg": 4.0, "count": 4}, {"technikas": "Arvydas Venckus", "avg": 0.67, "count": 3}, {"technikas": "Rolandas Zaleckas E-pas, Deividas Arlauskas", "avg": 0.0, "count": 2}], "reviews": [{"Kontaktinis telefonas": "+37065648285", "Registracijos nr.": "V26-0048167-2", "Adresas": "Liepų g. 46A, Klaipėda", "Darbo aprašas": "Avariniai darbai ne pagal standartinį įkainį_K1", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "0", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Arvydas Venckus", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Patikrinti alsuoklį, pravalyti sotvą. Pažiūrėti kur alsuoklis išvestas.  patikslina tel.nr +37061638283  adėjome jausti blogą kvapą iš kanalizacijos (mano butas yra 18, 3 aukštas), taip pat žemiau manęs gyvenantys (10 ir 14 butai, atitinkamai 1 ir 2 aukštai) taip pat minėjo, kad jaučia blogą kvapą iš kanalizacijos. Kita kaimynė iš 16 buto minėjo, kad kvapo nesijaučia, tai gal čia tik vienoje namo pusėjė yra kažkas atsitikę nuotekų nubėgimo dalyje. Būčiau dėkingas jei atsakingi asmenys galėtų atvykti ir patikrinti situaciją. Gal reikėtų išvalyti nuotekų stovą per alsuoklį.", "_ts": "2026-03-01 08:05:52"}, {"Kontaktinis telefonas": "+37061624041", "Registracijos nr.": "V26-0055020", "Adresas": "Poilsio g. 35, Klaipėda", "Darbo aprašas": "", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto; Darbai atlikti per pažadėtą terminą; Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai; Darbų atlikimo metu buvau informuojamas apie eigą / vykdomus veiksmus; Atliktų darbų kainos ir kokybės santykis yra tinkamas", "Technikas": "Laimonas Paulauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "48BT gyventoja +37067227240  Skambučio laikas 10:21. Durų kodas: 43 Rūsio raktai:  turi laša vanduo iš stovų 4 aukšte. Apie mokestį inf.:atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 60.50 Eur.", "_ts": "2026-03-01 09:26:23"}, {"Kontaktinis telefonas": "+37063777913", "Registracijos nr.": "V26-0055020", "Adresas": "Poilsio g. 35, Klaipėda", "Darbo aprašas": "", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "0", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Laimonas Paulauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "48BT gyventoja +37067227240  Skambučio laikas 10:21. Durų kodas: 43 Rūsio raktai:  turi laša vanduo iš stovų 4 aukšte. Apie mokestį inf.:atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 60.50 Eur.", "_ts": "2026-03-01 12:18:05"}, {"Kontaktinis telefonas": "+37069987695", "Registracijos nr.": "V25-0439504-1", "Adresas": "Mėguvos g. 9, Palanga", "Darbo aprašas": "Lauko šviestuvų remontas, keitimas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Pavel Kudla", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Sveiki, Neveikia lauko šviestuvas iš šiaurinės pusės, prašome sutvarkyti (  galioja garantija ) Vaidotas Markūnas,", "_ts": "2026-03-01 20:56:12"}, {"Kontaktinis telefonas": "+37068251537", "Registracijos nr.": "V26-0058053", "Adresas": "Vanagupės g. 26, Palanga", "Darbo aprašas": "", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "2", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Arvydas Venckus", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Perėmus Mano būstui administravimui - visiška betvarkė, viskas apleista, šlagbaumas neveikia, šiukšlynai visur.", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skambučio laikas 11:47. Durų kodas: atidarytos Rūsio raktai: neturi laša vanduo iš bendrų ventilių apačioje didesnė bala. Apie mokestį inf.:atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 60.50 Eur.", "_ts": "2026-03-02 11:13:01"}, {"Kontaktinis telefonas": "+37069839738", "Registracijos nr.": "V26-0058053", "Adresas": "Vanagupės g. 26, Palanga", "Darbo aprašas": "", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "0", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Arvydas Venckus", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Atliktų darbų paaiškinimuose  minima tik kokiu įstatymu rėmėsi pvz,LR šilumos ūkio įstatymu,ir kokia priskaičiuota suma ,o kas konkrečiai kiekvienu atveju buvo atliekama nėra paaiškinama.", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skambučio laikas 11:47. Durų kodas: atidarytos Rūsio raktai: neturi laša vanduo iš bendrų ventilių apačioje didesnė bala. Apie mokestį inf.:atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 60.50 Eur.", "_ts": "2026-03-02 22:24:04"}, {"Kontaktinis telefonas": "+37062285328", "Registracijos nr.": "V25-0458264", "Adresas": "J. Basanavičiaus g. 17, Šilalė", "Darbo aprašas": "Elektros remonto darbai bute", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Vaidotas Kęsminas, Deividas Arlauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skaitikliai ofise Šilalėje.  Užfiksuoti paskutinius parodymus.   Pakeisti senus elektros skaitiklius (geros būklės skaitiklius, pačių gyventojų pakeistus (pvz gama100 paliekame) 4a. dalis gyventojų jau patys pasikeitę skaitiklius.", "_ts": "2026-03-04 11:15:42"}, {"Kontaktinis telefonas": "+37061268657", "Registracijos nr.": "V26-0053333-1", "Adresas": "Vanagupės g. 22A, Palanga", "Darbo aprašas": "Smulkūs durų remonto darbai (reguliavimas, kojelė, pritraukėjas, sutepimas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Pavel Kudla", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "I.B ytra durys ir is vidinio kiemo, reikia  patikrinti Kreipėsi, jog vienas namo pagrindinis įėjimas ir durys neužsidaro tinkamai, prašo sutvarkyti Prisistatyti nesutiko", "_ts": "2026-03-04 11:52:05"}, {"Kontaktinis telefonas": "+37065266147", "Registracijos nr.": "V26-0052962", "Adresas": "Nidos g. 46, Klaipėda", "Darbo aprašas": "Smulkūs elektros remonto darbai (laiptinėje) (jungtuko, rozečių, dėžučių remontas keitimas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Esate tiesiog pinigu plėšikai. Daug absoliučiai bereikalingų darbų ir uż neadekvaċias kainas.", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Kreipėsi gyventoja, nes laiptinėje ir rūsyje dingusi elektra. Butuose yra. 2 laiptinė, atvykus susisiekti +37067467287 gyventoja įleis į rūsy, viską parodys.", "_ts": "2026-03-05 07:33:13"}, {"Kontaktinis telefonas": "+37060779747", "Registracijos nr.": "V26-0062786", "Adresas": "Statybininkų pr. 33, Klaipėda", "Darbo aprašas": "", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbų atlikimo metu sprendimų buvo ieškoma nedelsiant / operatyviai", "Technikas": "Laimonas Paulauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Klientė kreipėsi, kad per lubas varva vanduo buto sandėliuke, pas kaimynus 2 aukšte viskas gerai, minėjo, kad 3 aukšte vienas butas vykdė remonto darbus. Gyventoja įtaria, kad kaimynai vykdydami darbus galimai bus sujudinę vamzdžius.  Laiptinė - paskutinė, durų kodas - 27*5182. tel. - 37060779747", "_ts": "2026-03-05 17:53:57"}, {"Kontaktinis telefonas": "+37067857662", "Registracijos nr.": "V26-0063215", "Adresas": "Žalgirio g. 5, Klaipėda", "Darbo aprašas": "Atstatyti resursą: vanduo (buitinių nuotekų avarija)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Arvydas Venckus", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skambučio laikas 10:46 Reakcijos laikas 4H Durų kodas 8*2084 , aukštas 3 Rūsio raktus turi. Bute užsikimšusi kanalizacija, ne kyla nuotekos, duše nesubėga vanduo, skalbiant skalbimo mašinos vanduo į dušą subėga ir stovi. Panašu, kad kažkur užsikimšę.  Apie mokestį inf.:atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 94.38 Eur. Tel.nr. +37060685437", "_ts": "2026-03-06 15:30:56"}, {"Kontaktinis telefonas": "+37069835351", "Registracijos nr.": "V26-0058086-1", "Adresas": "Vanagupės g. 22, Palanga", "Darbo aprašas": "Lauko šviestuvų remontas, keitimas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Pavel Kudla", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Buvo remontuojamas Vanagupės 22 išorės apšvietimas prie 3-os laiptinės.  PO remonto:  1. Mašinų aikštelės šviestuvas tamsiu paros metu tai šviečia, tai nešviečia.  2. Lauko šviestuvai lubose- tamsiu paros metus šviečia tik apie 50 proc. šviestuvų.  3. Keletas lauko šviestuvų lubose šviečia ir dienos metu!!!  Prašau informuokite, kokia įmonė (pavadinimas ir kontaktiniai tel.) buvo samdoma šių darbų atlikimui.", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Vanagupės 22, Palanga, prie trečios laiptinės neveikia išorės ir parkavimo aikštelės apšvietimas. Gedimas jau nuo pernai metų gruodžio mėnesio.", "_ts": "2026-03-11 10:57:06"}, {"Kontaktinis telefonas": "+37068617659", "Registracijos nr.": "V26-0058086-1", "Adresas": "Vanagupės g. 22, Palanga", "Darbo aprašas": "Lauko šviestuvų remontas, keitimas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "9", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto", "Technikas": "Pavel Kudla", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Vanagupės 22, Palanga, prie trečios laiptinės neveikia išorės ir parkavimo aikštelės apšvietimas. Gedimas jau nuo pernai metų gruodžio mėnesio.", "_ts": "2026-03-12 08:48:00"}, {"Kontaktinis telefonas": "+37061513309", "Registracijos nr.": "V26-0071216", "Adresas": "Žardininkų g. 15, Klaipėda", "Darbo aprašas": "Atstatyti resursą: elektra", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skambučio laikas 15:00 Reakcijos laikas 1H. Durų kodas - nežino , aukštas 1.  Kreipėsi gyventojas, kad jam koridoriuje skydinėje svyla automatukas. +37065017002  Apie mokestį inf.atvyk. 15 Eur/ nuo 48.40 eur/val. buto atsakomybė/ BNO nuo 78,02 Eur.", "_ts": "2026-03-15 10:11:05"}, {"Kontaktinis telefonas": "+37069978619", "Registracijos nr.": "V26-0066327", "Adresas": "Naikupės g. 16, Klaipėda", "Darbo aprašas": "Smulkūs elektros remonto darbai (laiptinėje) (jungtuko, rozečių, dėžučių remontas keitimas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "9", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai; Atliktų darbų kainos ir kokybės santykis yra tinkamas", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Pateikus informaciją   apie gedimą, darbai buvo atlikti per trumpą laiką", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "4 laiptinės prieangyje perdegusi lemputė, iki 3 metrų. jau apie savaitę laiko.", "_ts": "2026-03-16 10:59:09"}, {"Kontaktinis telefonas": "+37060252030", "Registracijos nr.": "V26-0072851", "Adresas": "Paryžiaus Komunos g. 1A, Klaipėda", "Darbo aprašas": "Automatinių vartų remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbai atlikti kokybiškai", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Šlagbaumo remontas", "_ts": "2026-03-18 11:25:13"}, {"Kontaktinis telefonas": "+37061224635", "Registracijos nr.": "V26-0072851", "Adresas": "Paryžiaus Komunos g. 1A, Klaipėda", "Darbo aprašas": "Automatinių vartų remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "6", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Operatyviosios informacijos.", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Šlagbaumo remontas", "_ts": "2026-03-18 13:13:44"}, {"Kontaktinis telefonas": "+37069874234", "Registracijos nr.": "V26-0072851", "Adresas": "Paryžiaus Komunos g. 1A, Klaipėda", "Darbo aprašas": "Automatinių vartų remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "9", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbai atlikti per pažadėtą terminą", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Šlagbaumo remontas", "_ts": "2026-03-19 09:46:12"}, {"Kontaktinis telefonas": "+37060117953", "Registracijos nr.": "V26-0068490", "Adresas": "Žemaičių g. 5G, Palanga", "Darbo aprašas": "Praėjimo vartelių remonto darbai", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Kreipėsi,kad vartai yra sugede,nulenktas ir neužsidaro.Prašop sutvarkyti nes dabar gaunasi,kad kiemas nėra uždaras.", "_ts": "2026-03-19 10:46:40"}, {"Kontaktinis telefonas": "+37069980337", "Registracijos nr.": "V26-0072284-1", "Adresas": "S. Daukanto g. 43, Klaipėda", "Darbo aprašas": "Šlaitinio stogo išorinės lietaus nuotekų sistemos alkūnių keitimas, remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai", "Technikas": "Mindaugas Vaišnoras", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "DV,RB 03,13 šiandien  reikia nors laikinai nuimti arba gal eina pritvirtinti. FOTO KA JP Klientas prašo sutvarkyti lietaus vamzdį adresu S. Daukanto 43. Nuotrauka DOK.", "_ts": "2026-03-19 10:47:21"}, {"Kontaktinis telefonas": "+37061298892", "Registracijos nr.": "V26-0076076", "Adresas": "Kauno g. 15, Klaipėda", "Darbo aprašas": "Atstatyti resursą: elektra", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Laimonas Paulauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Prisiskambinti neįmanoma,o jei ir prisiskambinau tai niekas neatvyko ir neperskambino dėl problemos ,taip ir niekas nepatvarkė visą žiemą šildymo. O šiaip nesupratau kokius remontus pašalinote,negavau jokio pranešimo", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Skambučio laikas 20:23  4 H.Durų kodas..tele.,  .I-oje laiptinėje per visus aukštus . dingo elektra, neveikia ielefonspynė, dingo ir k/k, atvėso gyvatukas butuose  elektra yra.  Apie mokestį inf.atvyk. 15 Eur,  BNO nuo 78,02 Eur.", "_ts": "2026-03-19 13:24:43"}, {"Kontaktinis telefonas": "+37061232947", "Registracijos nr.": "V26-0068490", "Adresas": "Žemaičių g. 5G, Palanga", "Darbo aprašas": "Praėjimo vartelių remonto darbai", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto; Darbai atlikti per pažadėtą terminą; Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Atlikti darbai", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Kreipėsi,kad vartai yra sugede,nulenktas ir neužsidaro.Prašop sutvarkyti nes dabar gaunasi,kad kiemas nėra uždaras.", "_ts": "2026-03-19 18:57:32"}, {"Kontaktinis telefonas": "+37067836338", "Registracijos nr.": "V26-0071195", "Adresas": "Žardininkų g. 4, Klaipėda", "Darbo aprašas": "Smulkūs telefonspynės remontas/ keitimas (elektromagneto, maitinimo bloko, exit mygtukas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto; Darbai atlikti per pažadėtą terminą; Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai; Atliktų darbų kainos ir kokybės santykis yra tinkamas", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Klientė informuoja, kad 1 laiptinės laukinių durų vidinis magnetas vos laikosi, reikalinga apžiūra ir remontas.  Irina Gruševič +37065237946", "_ts": "2026-03-20 11:03:09"}, {"Kontaktinis telefonas": "", "Registracijos nr.": "V26-0072851", "Adresas": "Paryžiaus Komunos g. 1A, Klaipėda", "Darbo aprašas": "Automatinių vartų remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "0", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Šlagbaumo remontas", "_ts": "2026-03-20 15:50:28"}, {"Kontaktinis telefonas": "+37063837205", "Registracijos nr.": "V26-0071195", "Adresas": "Žardininkų g. 4, Klaipėda", "Darbo aprašas": "Smulkūs telefonspynės remontas/ keitimas (elektromagneto, maitinimo bloko, exit mygtukas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Klientė informuoja, kad 1 laiptinės laukinių durų vidinis magnetas vos laikosi, reikalinga apžiūra ir remontas.  Irina Gruševič +37065237946", "_ts": "2026-03-20 19:05:18"}, {"Kontaktinis telefonas": "+37069871586", "Registracijos nr.": "V26-0072284-1", "Adresas": "S. Daukanto g. 43, Klaipėda", "Darbo aprašas": "Šlaitinio stogo išorinės lietaus nuotekų sistemos alkūnių keitimas, remontas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "9", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto; Darbai atlikti per pažadėtą terminą; Darbų atlikimo terminai atitiko mano lūkesčius; Darbai atlikti kokybiškai; Darbų atlikimo metu buvau informuojamas apie eigą / vykdomus veiksmus; Darbų atlikimo metu sprendimų buvo ieškoma nedelsiant / operatyviai; Atliktų darbų kainos ir kokybės santykis yra tinkamas", "Technikas": "Mindaugas Vaišnoras", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "DV,RB 03,13 šiandien  reikia nors laikinai nuimti arba gal eina pritvirtinti. FOTO KA JP Klientas prašo sutvarkyti lietaus vamzdį adresu S. Daukanto 43. Nuotrauka DOK.", "_ts": "2026-03-21 09:21:45"}, {"Kontaktinis telefonas": "+37069886780", "Registracijos nr.": "V26-0068490", "Adresas": "Žemaičių g. 5G, Palanga", "Darbo aprašas": "Praėjimo vartelių remonto darbai", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "5", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Kreipėsi,kad vartai yra sugede,nulenktas ir neužsidaro.Prašop sutvarkyti nes dabar gaunasi,kad kiemas nėra uždaras.", "_ts": "2026-03-23 09:30:26"}, {"Kontaktinis telefonas": "+37068547513", "Registracijos nr.": "V25-0424444-2", "Adresas": "Debreceno g. 72, Klaipėda", "Darbo aprašas": "Elektros kabelio montavimas, keitimas (bendro naudojimo patalpose)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "5", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Vaidotas Kęsminas, Deividas Arlauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Defektinis dok.  Pranešimas sukurtas pagal DA693534    4-a laiptinė 1, 4 aukštų 3 apskaitų 2-a laiptinė 2 3 aukštai 3 apskaitų 3-a laiptinė 1 aukšto 3 apskaitų", "_ts": "2026-03-23 18:29:44"}, {"Kontaktinis telefonas": "+37061022396", "Registracijos nr.": "V25-0424444-2", "Adresas": "Debreceno g. 72, Klaipėda", "Darbo aprašas": "Elektros kabelio montavimas, keitimas (bendro naudojimo patalpose)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "8", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Apie planuojamus darbus buvau informuotas (-a) iš anksto; Darbai atlikti per pažadėtą terminą; Darbų atlikimo terminai atitiko mano lūkesčius", "Technikas": "Vaidotas Kęsminas, Deividas Arlauskas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "Neatliepiat į pagrindinę bėdą,namui reikalinga renovacija", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "Defektinis dok.  Pranešimas sukurtas pagal DA693534    4-a laiptinė 1, 4 aukštų 3 apskaitų 2-a laiptinė 2 3 aukštai 3 apskaitų 3-a laiptinė 1 aukšto 3 apskaitų", "_ts": "2026-03-24 21:48:57"}, {"Kontaktinis telefonas": "+37060919917", "Registracijos nr.": "V26-0073449", "Adresas": "Paryžiaus Komunos g. 8, Klaipėda", "Darbo aprašas": "Smulkūs telefonspynės remontas/ keitimas (elektromagneto, maitinimo bloko, exit mygtukas)", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "1", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "", "Technikas": "Romas Sindriūnas E-pas", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "AK PT: Avarinės techniko info. Neveikia telefonspynė, reikia nuvykti patikrinti.", "_ts": "2026-03-26 08:39:36"}, {"Kontaktinis telefonas": "+37064590155", "Registracijos nr.": "V26-0087283", "Adresas": "Statybininkų pr. 35, Klaipėda", "Darbo aprašas": "Atstatyti resursą: šildymas", "Bendras pasitenkinimas MB suteiktomis paslaugomis": "10", "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)": "Darbai atlikti per pažadėtą terminą", "Technikas": "Arvydas Venckus", "Mano Būstas Rekomendacija (NPS) (balais)": "", "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos": "", "Darbų vykdytojas": "Mindaugas Bukauskas", "Description": "AK/TK: II-os laipt d/k 70*4101 sk laikas 20:30 nėra k/v , vietoje jo bėga šaltas, atvėso gyvatukas, šalti radiatoriai, teigia, kad problema ir pas kaimynus š/p II-os laiptinės rūsyje,  . Apie mokestį inf.atvyk. 15 Eur/ nuo 48.40 eur/val.", "_ts": "2026-03-26 14:49:43"}]}</script>
+<script>
+  const SLIDE_SECONDS = 10;
+  const payload = JSON.parse(document.getElementById("payload").textContent);
+  let slideIdx = 0;
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function scoreBadge(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) return '<span class="badge b-na">—</span>';
+    if (n >= 9) return '<span class="badge b-good">'+esc(n)+'</span>';
+    if (n >= 7) return '<span class="badge b-mid">'+esc(n)+'</span>';
+    return '<span class="badge b-bad">'+esc(n)+'</span>';
+  }
+
+  function medal(i) {
+    if (i === 0) return "🥇";
+    if (i === 1) return "🥈";
+    if (i === 2) return "🥉";
+    return String(i+1);
+  }
+
+  function renderTop(p) {
+    const top = p.topTechnicians || [];
+    const rows = top.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td><strong>${esc(t.technikas)}</strong></td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td class="muted" style="width:70px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    const table = `
+      <table>
+        <thead><tr><th></th><th>Technikas</th><th>Vid.</th><th>Kiekis</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" class="muted">Kol kas nėra duomenų.</td></tr>`}</tbody>
+      </table>
+    `;
+    document.getElementById("topTable").innerHTML = table;
+
+    const prev = p.prevTopTechnicians || [];
+    const prevRows = prev.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td><strong>${esc(t.technikas)}</strong></td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td class="muted" style="width:70px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    const prevTable = `
+      <table>
+        <thead><tr><th>#</th><th>Technikas</th><th>Vid.</th><th>Kiekis</th></tr></thead>
+        <tbody>${prevRows || `<tr><td colspan="4" class="muted">Praeitą mėnesį duomenų nėra.</td></tr>`}</tbody>
+      </table>
+    `;
+    const pill = document.getElementById("prevMonthPill");
+    if (pill) pill.textContent = (p.prevMonthLabel || "");
+    const prevDiv = document.getElementById("prevTopTable");
+    if (prevDiv) prevDiv.innerHTML = prevTable;
+  }
+
+  function renderReview(r){
+    const satKey = "Bendras pasitenkinimas MB suteiktomis paslaugomis";
+    const npsKey = "Mano Būstas Rekomendacija (NPS) (balais)";
+    const npsCommentKey = "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos";
+
+    const satScore = r[satKey] ?? "";
+    const npsScore = r[npsKey] ?? "";
+    const npsComment = r[npsCommentKey] ?? "";
+
+    return `
+      <div class="k-title">🔧 Pasitenkinimas suteiktomis paslaugomis</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(satScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k-title-sub">Mano Būstas Rekomendacija (NPS)</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(npsScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k">NPS komentaras / pasiūlymai</div>
+      <div class="v">${esc(npsComment) || "—"}</div>
+
+      <div class="divider"></div>
+      <div style="border-top:1px solid rgba(255,255,255,.08); padding-top:12px;">
+        <div class="k">Technikas</div>
+        <div class="v">${esc(r["Technikas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Adresas</div>
+        <div class="v">${esc(r["Adresas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Registracijos nr.</div>
+        <div class="v">${esc(r["Registracijos nr."]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Pranešimo aprašymas</div>
+        <div class="v">${esc(r["Description"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Kontaktinis telefonas</div>
+        <div class="v">${esc(r["Kontaktinis telefonas"]) || "—"}</div>
+      </div>
+    `;
+  }
+
+  function render(){
+    const slide = document.getElementById("slide");
+    const status = document.getElementById("status");
+    const updated = document.getElementById("updated");
+    const updatedInline = document.getElementById("updatedInline");
+    const executorPill = document.getElementById("executorPill");
+
+    executorPill.textContent = payload.executor || "";
+    updated.textContent = "lastUpdated: " + (payload.lastUpdated || "");
+    updatedInline.textContent = payload.lastUpdated || "";
+
+    renderTop(payload);
+
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+
+    if (reviews.length === 0) {
+      slide.innerHTML = '<div class="muted">Einamą mėnesį atsiliepimų nėra.</div>';
+      status.textContent = "Atsiliepimai • 0";
+      return;
+    }
+
+    slideIdx = slideIdx % totalSlides;
+    slide.innerHTML = renderReview(reviews[slideIdx]);
+    status.textContent = "Atsiliepimai • skaidrė " + (slideIdx+1) + "/" + totalSlides;
+  }
+
+  function nextSlide(){
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+    if (totalSlides <= 1) return;
+    slideIdx = (slideIdx + 1) % totalSlides;
+    render();
+  }
+
+  function prevSlide(){
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+    if (totalSlides <= 1) return;
+    slideIdx = (slideIdx - 1 + totalSlides) % totalSlides;
+    render();
+  }
+
+  const nextBtn = document.getElementById("nextBtn");
+  const prevBtn = document.getElementById("prevBtn");
+  if (nextBtn) nextBtn.addEventListener("click", nextSlide);
+  if (prevBtn) prevBtn.addEventListener("click", prevSlide);
+
+  // Keyboard navigation
+  document.addEventListener("keydown", function(ev){
+    if (ev.key === "ArrowRight") { nextSlide(); }
+    if (ev.key === "ArrowLeft") { prevSlide(); }
+  });
+
+  render();
+
+  // Auto-advance
+  const intervalId = setInterval(function(){ nextSlide(); }, SLIDE_SECONDS * 1000);
+
+  const totalSlides = Math.max((payload.reviews || []).length, 1);
+  const cycleMs = totalSlides * SLIDE_SECONDS * 1000;
+  setTimeout(function(){ location.reload(); }, cycleMs);
+</script>
+</body>
+</html>
