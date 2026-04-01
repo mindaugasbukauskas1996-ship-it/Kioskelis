@@ -464,13 +464,29 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         st["sum"] += float(score)
         st["cnt"] += 1.0
 
-    top = []
-    for tech, st in tech_stats.items():
-        cnt = int(st["cnt"])
-        if cnt < min_top_count:
-            continue
-        avg = st["sum"] / st["cnt"]
-        top.append({"technikas": tech, "avg": round(avg, 2), "count": cnt})
+top = []
+for tech, st in tech_stats.items():
+    cnt = int(st["cnt"])
+    if cnt < min_top_count:
+        continue
+
+    avg = st["sum"] / st["cnt"]
+
+    # rasti praeito mėnesio reikšmę
+    prev = next((p for p in prev_top if p["technikas"] == tech), None)
+    prev_avg = prev["avg"] if prev else None
+
+    delta = None
+    if prev_avg is not None:
+        delta = round(avg - prev_avg, 2)
+
+    top.append({
+        "technikas": tech,
+        "avg": round(avg, 2),
+        "count": cnt,
+        "prev_avg": prev_avg,
+        "delta": delta
+    })
 
     top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
 
