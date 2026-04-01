@@ -666,7 +666,7 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
 
     const table = `
       <table>
-        <thead><tr><th></th><th>Technikas</th><th>Vid.</th><th>Kiekis</th></tr></thead>
+        <thead><tr><th></th><th>Technikas</th><th>Vertinimo Vidurkis</th><th>Kiekis</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="4" class="muted">Kol kas nėra duomenų.</td></tr>`}</tbody>
       </table>
     `;
@@ -684,7 +684,7 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
 
     const prevTable = `
       <table>
-        <thead><tr><th>#</th><th>Technikas</th><th>Vid.</th><th>Kiekis</th></tr></thead>
+        <thead><tr><th>#</th><th>Technikas</th><th>Vertinimo Vidurkis</th><th>Kiekis</th></tr></thead>
         <tbody>${prevRows || `<tr><td colspan="4" class="muted">Praeitą mėnesį duomenų nėra.</td></tr>`}</tbody>
       </table>
     `;
