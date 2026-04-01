@@ -674,7 +674,18 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     const rows = top.map((t, i) => `
       <tr>
         <td style="width:44px">${medal(i)}</td>
-        <td><strong>${esc(t.technikas)}</strong></td>
+       <td>
+  <strong>${esc(t.technikas)}</strong><br>
+  <span style="font-size:12px;opacity:.7">
+    ${t.prev_avg !== null ? "buvo: " + esc(t.prev_avg) : ""}
+    ${t.delta !== null ? 
+      (t.delta >= 0 
+        ? ' <span style="color:#22c55e">▲ +' + esc(t.delta) + '</span>' 
+        : ' <span style="color:#ef4444">▼ ' + esc(t.delta) + '</span>')
+      : ""
+    }
+  </span>
+</td>
         <td style="width:84px">${esc(t.avg)}</td>
         <td class="muted" style="width:70px">${esc(t.count)}</td>
       </tr>
