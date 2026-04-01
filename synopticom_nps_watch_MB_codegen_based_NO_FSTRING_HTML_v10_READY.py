@@ -510,7 +510,7 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
 
 
 
-def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 10) -> str:
+def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 60) -> str:
 
     # Self-contained kiosk page: embed payload JSON directly (works with file:// without server).
     # IMPORTANT: Do NOT use f-strings here (JS contains {} which breaks f-strings).
