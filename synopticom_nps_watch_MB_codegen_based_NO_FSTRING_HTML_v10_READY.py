@@ -394,7 +394,7 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
 
     now = datetime.now()
     cur_y, cur_m = now.year, now.month
-    # Previous month (for sidebar bottom)
+
     if cur_m == 1:
         prev_y, prev_m = cur_y - 1, 12
     else:
@@ -410,7 +410,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         except Exception:
             return False
 
-
     def in_current_month(ts: str) -> bool:
         ts = (ts or "").strip()
         if not ts:
@@ -421,7 +420,7 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         except Exception:
             return False
 
-    # Filter: executor + current month
+    # Current month rows for executor
     filt = []
     for r in rows:
         ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
@@ -431,8 +430,7 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
             continue
         filt.append(r)
 
-
-    # Filter: executor + previous month
+    # Previous month rows for executor
     prev_filt = []
     for r in rows:
         ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
@@ -451,7 +449,34 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         item["_ts"] = str(r.get("_ts", "")).strip()
         reviews.append(item)
 
-    # TOP technicians (avg satisfaction score)
+    # Previous month technician stats
+    prev_tech_stats: Dict[str, Dict[str, float]] = {}
+    for r in prev_filt:
+        tech = str(r.get("Technikas", "")).strip()
+        if not tech:
+            continue
+        score = normalize_satisfaction_score(r)
+        if score is None:
+            continue
+        st = prev_tech_stats.setdefault(tech, {"sum": 0.0, "cnt": 0.0})
+        st["sum"] += float(score)
+        st["cnt"] += 1.0
+
+    prev_top = []
+    for tech, st in prev_tech_stats.items():
+        cnt = int(st["cnt"])
+        if cnt < min_top_count:
+            continue
+        avg = st["sum"] / st["cnt"]
+        prev_top.append({
+            "technikas": tech,
+            "avg": round(avg, 2),
+            "count": cnt,
+        })
+
+    prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    # Current month technician stats
     tech_stats: Dict[str, Dict[str, float]] = {}
     for r in filt:
         tech = str(r.get("Technikas", "")).strip()
@@ -464,29 +489,40 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         st["sum"] += float(score)
         st["cnt"] += 1.0
 
-top = []
-for tech, st in tech_stats.items():
-    cnt = int(st["cnt"])
-    if cnt < min_top_count:
-        continue
+    # Current month TOP with delta vs previous month
+    top = []
+    for tech, st in tech_stats.items():
+        cnt = int(st["cnt"])
+        if cnt < min_top_count:
+            continue
 
-    avg = st["sum"] / st["cnt"]
+        avg = st["sum"] / st["cnt"]
+        prev = next((p for p in prev_top if p["technikas"] == tech), None)
+        prev_avg = prev["avg"] if prev else None
 
-    # rasti praeito mėnesio reikšmę
-    prev = next((p for p in prev_top if p["technikas"] == tech), None)
-    prev_avg = prev["avg"] if prev else None
+        delta = None
+        if prev_avg is not None:
+            delta = round(avg - prev_avg, 2)
 
-    delta = None
-    if prev_avg is not None:
-        delta = round(avg - prev_avg, 2)
+        top.append({
+            "technikas": tech,
+            "avg": round(avg, 2),
+            "count": cnt,
+            "prev_avg": prev_avg,
+            "delta": delta,
+        })
 
-    top.append({
-        "technikas": tech,
-        "avg": round(avg, 2),
-        "count": cnt,
-        "prev_avg": prev_avg,
-        "delta": delta
-    })
+    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    return {
+        "executor": "Mindaugas Bukauskas",
+        "lastUpdated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "month": f"{cur_y:04d}-{cur_m:02d}",
+        "topTechnicians": top,
+        "prevMonthLabel": f"{prev_y:04d}-{prev_m:02d}",
+        "prevTopTechnicians": prev_top,
+        "reviews": reviews,
+    }
 
     top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
 
@@ -743,10 +779,14 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     document.getElementById("topTable").innerHTML = table;
 
     const prev = p.prevTopTechnicians || [];
-    const prevRows = prev.map((t, i) => `
-      <tr>
-        <td style="width:44px">${medal(i)}</td>
-        <td>
+const prevRows = prev.map((t, i) => `
+  <tr>
+    <td style="width:44px">${medal(i)}</td>
+    <td><strong>${esc(t.technikas)}</strong></td>
+    <td style="width:84px">${esc(t.avg)}</td>
+    <td class="muted" style="width:70px">${esc(t.count)}</td>
+  </tr>
+`).join("");
   <strong>${esc(t.technikas)}</strong><br>
   <span style="font-size:12px;opacity:.75">
     ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : ""}
