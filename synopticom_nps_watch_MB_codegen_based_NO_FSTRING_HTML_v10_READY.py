@@ -2,8 +2,8 @@ import os
 import json
 import time
 import hashlib
-import csv
 import re
+import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
@@ -18,11 +18,10 @@ load_dotenv()
 SYN_USER = (os.getenv("SYN_USER") or "").strip()
 SYN_PASS = (os.getenv("SYN_PASS") or "").strip()
 
-
 POLL_SECONDS = int((os.getenv("POLL_SECONDS") or "60").strip())
 DEBUG = (os.getenv("DEBUG") or "0").strip() == "1"
 
-# Project tile on synopticom surveys page (from your codegen)
+# Project tile on synopticom surveys page
 PROJECT_DIV_ID = (os.getenv("REPORT_PROJECT_DIV_ID") or "5720").strip()
 PROJECT_TEXT_SNIPPET = (os.getenv("REPORT_PROJECT_TEXT") or "Mano Būstas rezultatai nuo").strip()
 
@@ -31,9 +30,8 @@ SYNOPTICOM_LOGIN_URL = "https://synopticom.com/in/en/users/login"
 REPORTS_INDEX_URL = "https://reports.synopticom.com/index.php?"
 REPORTS_ALLDATA_URL = "https://reports.synopticom.com/alldata.php"
 
-# State file in TEMP (avoid OneDrive permission issues)
-STATE_FILE = Path(os.getenv("TEMP", r"C:\temp")) / "synopticom_last_row.json"
-
+# State file
+STATE_FILE = Path(os.getenv("STATE_DIR") or tempfile.gettempdir()) / "synopticom_last_row.json"
 
 # -----------------------------
 # Helpers
@@ -47,6 +45,7 @@ def sha(s: str) -> str:
 
 
 def send_telegram(text: str) -> None:
+    # Intentionally disabled in kiosk/web version
     pass
 
 
@@ -99,7 +98,6 @@ def parse_last_row(data: bytes) -> Tuple[Dict[str, Any], str]:
             rows.append(ln.split("\t"))
 
     if not rows:
-        # Helpful debug
         sample = "\n".join(lines[:25])
         raise RuntimeError("Nerasta duomenų eilučių su data. Pavyzdys:\n" + sample)
 
@@ -117,7 +115,6 @@ def is_executor_mindaugas(row: Dict[str, Any]) -> bool:
     return str(val).strip().lower() == "mindaugas bukauskas"
 
 
-
 def latest_executor_row_hash(rows: list[Dict[str, str]], executor_name: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
     """Return latest row (by _ts) for executor and its stable hash; (None, None) if missing."""
     ex_norm = executor_name.strip().lower()
@@ -130,7 +127,6 @@ def latest_executor_row_hash(rows: list[Dict[str, str]], executor_name: str) -> 
         candidates.append((ts, r))
     if not candidates:
         return None, None
-    # Sort by timestamp string (ISO-like) then take last
     candidates.sort(key=lambda x: x[0])
     latest = candidates[-1][1]
     raw = json.dumps(latest, ensure_ascii=False, sort_keys=True)
@@ -147,32 +143,33 @@ def format_message(row: Dict[str, Any]) -> str:
         "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)",
         "Technikas",
         "Mano Būstas Rekomendacija (NPS) (balais)",
-    "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos",
+        "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos",
     ]
     lines = [f"{k}: {str(row.get(k, '')).strip()}" for k in keys]
     return "Naujas NPS irasas (Mindaugas Bukauskas)\n\n" + "\n".join(lines)
 
 
 # -----------------------------
-# Playwright flow (based on your codegen)
+# Playwright flow
 # -----------------------------
 def do_export_download() -> bytes:
     if not SYN_USER or not SYN_PASS:
         raise RuntimeError("Trūksta SYN_USER arba SYN_PASS (.env).")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=(not DEBUG))
+        browser = p.chromium.launch(
+            headless=(not DEBUG),
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
         context = browser.new_context(accept_downloads=True)
         page = context.new_page()
 
-        # Login
         page.goto(SYNOPTICOM_LOGIN_URL, wait_until="domcontentloaded")
         try:
             page.wait_for_load_state("networkidle", timeout=30_000)
         except Exception:
             pass
 
-        # Use codegen-style role selectors
         page.get_by_role("textbox", name=re.compile(r"E-?mail", re.I)).fill(SYN_USER)
         page.get_by_role("textbox", name=re.compile(r"Password", re.I)).fill(SYN_PASS)
         page.get_by_role("button", name=re.compile(r"Login", re.I)).click()
@@ -185,15 +182,12 @@ def do_export_download() -> bytes:
 
         log(f"[DEBUG] after synopticom login URL: {page.url}")
 
-        # Click project tile/link (numeric id -> attribute selector)
         tile = page.locator(f'[id="{PROJECT_DIV_ID}"]').first
         if tile.count() == 0:
             raise RuntimeError(f"Nerandu projekto tile su id={PROJECT_DIV_ID} (surveys puslapyje). URL: {page.url}")
 
-        # In codegen you clicked: [id="5720"] div (with text snippet)
         clickable = tile.locator("div").filter(has_text=PROJECT_TEXT_SNIPPET).first
         if clickable.count() == 0:
-            # Fallback: any project_link inside the tile
             clickable = tile.locator("a.project_link").first
 
         try:
@@ -213,7 +207,6 @@ def do_export_download() -> bytes:
         page.wait_for_timeout(800)
         log(f"[DEBUG] after project click URL: {page.url}")
 
-        # Navigate to reports index and then "Visi klientai"
         page.goto(REPORTS_INDEX_URL, wait_until="domcontentloaded")
         try:
             page.wait_for_load_state("networkidle", timeout=30_000)
@@ -222,7 +215,6 @@ def do_export_download() -> bytes:
         page.wait_for_timeout(500)
         log(f"[DEBUG] opened reports index URL: {page.url}")
 
-        # codegen: first listitem click (keeps same behavior)
         try:
             page.get_by_role("listitem").first.click(timeout=15_000)
         except Exception:
@@ -242,9 +234,7 @@ def do_export_download() -> bytes:
         page.wait_for_timeout(800)
         log(f"[DEBUG] opened alldata URL: {page.url}")
 
-        # Export download
         with page.expect_download(timeout=60_000) as dl_info:
-            # Prefer the exact class, fallback to link name "XLS"
             export_btn = page.locator('a.export-to-xls-button[href*="export=1"]').first
             if export_btn.count() > 0:
                 export_btn.click()
@@ -254,7 +244,7 @@ def do_export_download() -> bytes:
         dl = dl_info.value
         path = dl.path()
         if not path:
-            tmp = Path(os.getenv("TEMP", r"C:\temp")) / "synopticom_export.bin"
+            tmp = Path(tempfile.gettempdir()) / "synopticom_export.bin"
             dl.save_as(str(tmp))
             data = tmp.read_bytes()
         else:
@@ -265,19 +255,13 @@ def do_export_download() -> bytes:
         return data
 
 
-
 # -----------------------------
-# Public kiosk output (NO server / NO admin)
-# Generates:
-#   public/index.html  (self-contained slideshow; works via file://)
-#   public/data.json   (optional; for troubleshooting)
-# The kiosk page auto-refreshes every N seconds to pick up changes.
+# Public kiosk output
 # -----------------------------
 PUBLIC_DIR = Path(__file__).parent / "public"
 PUBLIC_DATA_JSON = PUBLIC_DIR / "data.json"
 PUBLIC_INDEX_HTML = PUBLIC_DIR / "index.html"
 
-# Keep the same info that is sent to Telegram (plus executor)
 KIOSK_KEYS = [
     "Kontaktinis telefonas",
     "Registracijos nr.",
@@ -291,24 +275,21 @@ KIOSK_KEYS = [
     "Darbų vykdytojas",
 ]
 
+
 def normalize_score_zero(v: str) -> str:
-    s = (v or '').strip()
+    s = (v or "").strip()
     if not s:
         return s
     low = s.lower()
-    if 'neturiu nuomon' in low or 'nežinau' in low or 'nežinau' in low:
-        return '0'
+    if "neturiu nuomon" in low or "nežinau" in low or "nežinau" in low:
+        return "0"
     return s
 
 
-
 def pick_description(row: Dict[str, str]) -> str:
-    """Return description from row using flexible header matching."""
-    # Exact matches first
     for k in ["Description", "Aprašymas", "Pranešimo aprašymas", "Pranesimo aprasymas"]:
         if k in row and str(row.get(k, "")).strip():
             return str(row.get(k, "")).strip()
-    # Fuzzy match
     for key, val in row.items():
         lk = str(key).strip().lower()
         if "description" in lk or "apraš" in lk or "apras" in lk:
@@ -317,24 +298,8 @@ def pick_description(row: Dict[str, str]) -> str:
                 return v
     return ""
 
-def _to_int_safe(x: object) -> Optional[int]:
-    s = str(x or "").strip()
-    if not s:
-        return None
-    m = re.search(r"-?\d+", s)
-    if not m:
-        return None
-    try:
-        return int(m.group(0))
-    except Exception:
-        return None
 
 def normalize_satisfaction_score(row: Dict[str, str]) -> Optional[int]:
-    """
-    Parse 'Bendras pasitenkinimas MB suteiktomis paslaugomis' as integer 0..10.
-    - 'neturiu nuomonės / nežinau' -> 0
-    - If value looks like non-rating (e.g., phone), ignore (None)
-    """
     key = "Bendras pasitenkinimas MB suteiktomis paslaugomis"
     raw = str(row.get(key, "") or "").strip()
     if not raw:
@@ -355,11 +320,6 @@ def normalize_satisfaction_score(row: Dict[str, str]) -> Optional[int]:
 
 
 def parse_all_rows(data: bytes) -> list[Dict[str, str]]:
-    """
-    Parse export (TAB-separated). Return list of dict rows.
-    Assumes first column is timestamp like 'YYYY-MM-DD HH:MM:SS'.
-    Stores that timestamp into '_ts' key.
-    """
     text = decode_export(data)
     lines = [ln.rstrip("\n\r") for ln in text.splitlines() if ln.strip()]
     if not lines:
@@ -371,9 +331,7 @@ def parse_all_rows(data: bytes) -> list[Dict[str, str]]:
     out: list[Dict[str, str]] = []
     for ln in lines[1:]:
         ln = ln.strip()
-        if not ln:
-            continue
-        if not date_pattern.match(ln):
+        if not ln or not date_pattern.match(ln):
             continue
         parts = ln.split("\t")
         if len(parts) < len(header):
@@ -420,7 +378,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         except Exception:
             return False
 
-    # Current month rows for executor
     filt = []
     for r in rows:
         ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
@@ -430,7 +387,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
             continue
         filt.append(r)
 
-    # Previous month rows for executor
     prev_filt = []
     for r in rows:
         ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
@@ -440,7 +396,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
             continue
         prev_filt.append(r)
 
-    # Recent reviews (newest first)
     recent = filt[-keep_last:]
     reviews = []
     for r in reversed(recent):
@@ -449,7 +404,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         item["_ts"] = str(r.get("_ts", "")).strip()
         reviews.append(item)
 
-    # Previous month technician stats
     prev_tech_stats: Dict[str, Dict[str, float]] = {}
     for r in prev_filt:
         tech = str(r.get("Technikas", "")).strip()
@@ -476,7 +430,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
 
     prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
 
-    # Current month technician stats
     tech_stats: Dict[str, Dict[str, float]] = {}
     for r in filt:
         tech = str(r.get("Technikas", "")).strip()
@@ -489,7 +442,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         st["sum"] += float(score)
         st["cnt"] += 1.0
 
-    # Current month TOP with delta vs previous month
     top = []
     for tech, st in tech_stats.items():
         cnt = int(st["cnt"])
@@ -524,91 +476,8 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         "reviews": reviews,
     }
 
-    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
-
-
-    # TOP technicians (avg satisfaction score) - current month
-    tech_stats: Dict[str, Dict[str, float]] = {}
-    for r in filt:
-        tech = str(r.get("Technikas", "")).strip()
-        if not tech:
-            continue
-        score = normalize_satisfaction_score(r)
-        if score is None:
-            continue
-        st = tech_stats.setdefault(tech, {"sum": 0.0, "cnt": 0.0})
-        st["sum"] += float(score)
-        st["cnt"] += 1.0
-
-    # Previous month TOP technicians
-    prev_tech_stats: Dict[str, Dict[str, float]] = {}
-    for r in prev_filt:
-        tech = str(r.get("Technikas", "")).strip()
-        if not tech:
-            continue
-        score = normalize_satisfaction_score(r)
-        if score is None:
-            continue
-        st = prev_tech_stats.setdefault(tech, {"sum": 0.0, "cnt": 0.0})
-        st["sum"] += float(score)
-        st["cnt"] += 1.0
-
-    prev_top = []
-    for tech, st in prev_tech_stats.items():
-        cnt = int(st["cnt"])
-        if cnt < min_top_count:
-            continue
-        avg = st["sum"] / st["cnt"]
-        prev_top.append({
-            "technikas": tech,
-            "avg": round(avg, 2),
-            "count": cnt
-        })
-
-    prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
-
-    # Current month TOP with delta vs previous month
-    top = []
-    for tech, st in tech_stats.items():
-        cnt = int(st["cnt"])
-        if cnt < min_top_count:
-            continue
-
-        avg = st["sum"] / st["cnt"]
-
-        prev = next((p for p in prev_top if p["technikas"] == tech), None)
-        prev_avg = prev["avg"] if prev else None
-
-        delta = None
-        if prev_avg is not None:
-            delta = round(avg - prev_avg, 2)
-
-        top.append({
-            "technikas": tech,
-            "avg": round(avg, 2),
-            "count": cnt,
-            "prev_avg": prev_avg,
-            "delta": delta
-        })
-
-    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
-
-    return {
-        "executor": "Mindaugas Bukauskas",
-        "lastUpdated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "month": f"{cur_y:04d}-{cur_m:02d}",
-        "topTechnicians": top,
-        "prevMonthLabel": f"{prev_y:04d}-{prev_m:02d}",
-        "prevTopTechnicians": prev_top,
-        "reviews": reviews,
-    }
-
-
 
 def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 60) -> str:
-
-    # Self-contained kiosk page: embed payload JSON directly (works with file:// without server).
-    # IMPORTANT: Do NOT use f-strings here (JS contains {} which breaks f-strings).
     payload_json = json.dumps(payload, ensure_ascii=False)
 
     template = """<!doctype html>
@@ -644,7 +513,7 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     .b-na   { background: rgba(148,163,184,.18); border:1px solid rgba(148,163,184,.30); }
 
     table { width:100%; border-collapse:collapse; }
-    th, td { text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(255,255,255,.08); }
+    th, td { text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(255,255,255,.08); vertical-align:top; }
     th { opacity:.7; font-weight:900; font-size: 12px; letter-spacing:.2px; }
     td { font-size: 15px; }
     .muted { opacity:.75; }
@@ -669,7 +538,6 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     .navbtn:hover { background: rgba(255,255,255,.10); }
     .navbtn:active { transform: translateY(1px); }
     .navbtn:focus { outline: 2px solid rgba(255,255,255,.25); outline-offset: 2px; }
-
 
     @media (min-width: 1600px) {
       header h1 { font-size: 22px; }
@@ -753,58 +621,43 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
     const rows = top.map((t, i) => `
       <tr>
         <td style="width:44px">${medal(i)}</td>
-       <td>
-  <strong>${esc(t.technikas)}</strong><br>
-  <span style="font-size:12px;opacity:.7">
-    ${t.prev_avg !== null ? "buvo: " + esc(t.prev_avg) : ""}
-    ${t.delta !== null ? 
-      (t.delta >= 0 
-        ? ' <span style="color:#22c55e">▲ +' + esc(t.delta) + '</span>' 
-        : ' <span style="color:#ef4444">▼ ' + esc(t.delta) + '</span>')
-      : ""
-    }
-  </span>
-</td>
+        <td>
+          <strong>${esc(t.technikas)}</strong><br>
+          <span style="font-size:12px;opacity:.75">
+            ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : "Nėra praeito mėn. duomenų"}
+            ${t.delta !== null
+              ? (t.delta >= 0
+                  ? ' <span style="color:#22c55e">▲ +' + esc(t.delta) + '</span>'
+                  : ' <span style="color:#ef4444">▼ ' + esc(t.delta) + '</span>')
+              : ''}
+          </span>
+        </td>
         <td style="width:84px">${esc(t.avg)}</td>
-        <td class="muted" style="width:70px">${esc(t.count)}</td>
+        <td class="muted" style="width:120px">${esc(t.count)}</td>
       </tr>
     `).join("");
 
     const table = `
       <table>
-        <thead><tr><th></th><th>Technikas</th><th>Vertinimo Vidurkis</th><th>Kiekis</th></tr></thead>
+        <thead><tr><th></th><th>Technikas</th><th>Įvertinimas</th><th>Įvertinimų kiekis</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="4" class="muted">Kol kas nėra duomenų.</td></tr>`}</tbody>
       </table>
     `;
     document.getElementById("topTable").innerHTML = table;
 
     const prev = p.prevTopTechnicians || [];
-const prevRows = prev.map((t, i) => `
-  <tr>
-    <td style="width:44px">${medal(i)}</td>
-    <td><strong>${esc(t.technikas)}</strong></td>
-    <td style="width:84px">${esc(t.avg)}</td>
-    <td class="muted" style="width:70px">${esc(t.count)}</td>
-  </tr>
-`).join("");
-  <strong>${esc(t.technikas)}</strong><br>
-  <span style="font-size:12px;opacity:.75">
-    ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : ""}
-    ${t.delta !== null
-      ? (t.delta >= 0
-          ? ' <span style="color:#22c55e">▲ +' + esc(t.delta) + '</span>'
-          : ' <span style="color:#ef4444">▼ ' + esc(t.delta) + '</span>')
-      : ""}
-  </span>
-</td>
+    const prevRows = prev.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td><strong>${esc(t.technikas)}</strong></td>
         <td style="width:84px">${esc(t.avg)}</td>
-        <td class="muted" style="width:70px">${esc(t.count)}</td>
+        <td class="muted" style="width:120px">${esc(t.count)}</td>
       </tr>
     `).join("");
 
     const prevTable = `
       <table>
-        <thead><tr><th>#</th><th>Technikas</th><th>Vertinimo Vidurkis</th><th>Kiekis</th></tr></thead>
+        <thead><tr><th>#</th><th>Technikas</th><th>Įvertinimas</th><th>Įvertinimų kiekis</th></tr></thead>
         <tbody>${prevRows || `<tr><td colspan="4" class="muted">Praeitą mėnesį duomenų nėra.</td></tr>`}</tbody>
       </table>
     `;
@@ -909,7 +762,6 @@ const prevRows = prev.map((t, i) => `
   if (nextBtn) nextBtn.addEventListener("click", nextSlide);
   if (prevBtn) prevBtn.addEventListener("click", prevSlide);
 
-  // Keyboard navigation
   document.addEventListener("keydown", function(ev){
     if (ev.key === "ArrowRight") { nextSlide(); }
     if (ev.key === "ArrowLeft") { prevSlide(); }
@@ -917,8 +769,7 @@ const prevRows = prev.map((t, i) => `
 
   render();
 
-  // Auto-advance
-  const intervalId = setInterval(function(){ nextSlide(); }, SLIDE_SECONDS * 1000);
+  setInterval(function(){ nextSlide(); }, SLIDE_SECONDS * 1000);
 
   const totalSlides = Math.max((payload.reviews || []).length, 1);
   const cycleMs = totalSlides * SLIDE_SECONDS * 1000;
@@ -933,32 +784,23 @@ const prevRows = prev.map((t, i) => `
             )
 
 
-
 def update_public_outputs(data: bytes) -> None:
-    """
-    Always try to refresh kiosk outputs from the latest export bytes.
-    This is independent from the "new row" / telegram notification logic.
-    """
     try:
         rows = parse_all_rows(data)
         payload = build_kiosk_payload(rows)
         PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Write JSON (useful for debugging)
         PUBLIC_DATA_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-        # Write self-contained HTML
         PUBLIC_INDEX_HTML.write_text(render_kiosk_html(payload), encoding="utf-8")
         log(f"[INFO] kiosk updated -> {PUBLIC_INDEX_HTML}")
     except Exception as e:
         log(f"[WARN] kiosk output failed: {e}")
 
+
 def run_once(last_hash: Optional[str]) -> Optional[str]:
     data = do_export_download()
     update_public_outputs(data)
 
-    # Determine the latest entry for Mindaugas (not the global last row),
-    # so we don't miss it when other executors submit newer rows.
     rows = parse_all_rows(data)
     latest_row, h = latest_executor_row_hash(rows, "Mindaugas Bukauskas")
 
@@ -975,8 +817,7 @@ def run_once(last_hash: Optional[str]) -> Optional[str]:
         log("[INFO] no changes")
         return last_hash
 
-    # New Mindaugas row detected
-    send_telegram(format_message(latest_row))  # format_message uses flexible get()
+    send_telegram(format_message(latest_row))
     log("[INFO] new Mindaugas row detected -> notified")
 
     save_state(h)
