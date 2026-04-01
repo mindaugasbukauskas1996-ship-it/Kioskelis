@@ -47,7 +47,7 @@ def sha(s: str) -> str:
 
 
 def send_telegram(text: str) -> None:
-pass
+    pass
 
 
 def load_state() -> Optional[str]:
