@@ -45,8 +45,20 @@ def sha(s: str) -> str:
 
 
 def send_telegram(text: str) -> None:
-    # Intentionally disabled in kiosk/web version
-    pass
+    import urllib.request
+    import urllib.parse
+    token = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+    chat_id = (os.getenv("TELEGRAM_CHAT_ID") or "").strip()
+    try:
+        data = urllib.parse.urlencode({
+            "chat_id": chat_id,
+            "text": text,
+            "parse_mode": "HTML",
+        }).encode()
+        urllib.request.urlopen(f"https://api.telegram.org/bot{token}/sendMessage", data)
+        log("[ALERT] Telegram žinutė išsiųsta")
+    except Exception as e:
+        log(f"[ERROR] Telegram alert: {e}")
 
 
 def load_state() -> Optional[str]:
@@ -142,7 +154,7 @@ def format_message(row: Dict[str, Any]) -> str:
         "Bendras pasitenkinimas MB suteiktomis paslaugomis",
         "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)",
         "Technikas",
-        "Mano Būstas Rekomendacija (NPS) (balais)",
+        "Mano Būstas Rekomendacija (NPS)",
         "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos",
     ]
     lines = [f"{k}: {str(row.get(k, '')).strip()}" for k in keys]
@@ -261,6 +273,22 @@ def do_export_download() -> bytes:
 PUBLIC_DIR = Path(__file__).parent / "public"
 PUBLIC_DATA_JSON = PUBLIC_DIR / "data.json"
 PUBLIC_INDEX_HTML = PUBLIC_DIR / "index.html"
+PUBLIC_KA_JSON = PUBLIC_DIR / "ka_data.json"
+PUBLIC_KA_HTML = PUBLIC_DIR / "ka.html"
+PUBLIC_KA_ATSTOVAI_JSON = PUBLIC_DIR / "ka_atstovai_data.json"
+PUBLIC_KA_ATSTOVAI_HTML = PUBLIC_DIR / "ka_atstovai.html"
+
+KA_EXECUTORS = [
+    "asta zakaraitė-oženka",
+    "eglė butkevičienė",
+    "inga bružienė",
+    "ernestas arčevskis",
+    "daiva marcinkienė",
+    "laimonas petreikis",
+    "lukas kuršelis",
+    "vaiva vičiūtė",
+    "laimonas jucius",
+]
 
 KIOSK_KEYS = [
     "Kontaktinis telefonas",
@@ -270,7 +298,6 @@ KIOSK_KEYS = [
     "Bendras pasitenkinimas MB suteiktomis paslaugomis",
     "Bendras pasitenkinimas MB suteiktomis paslaugomis - Kas paskatino šitaip vertinti? (balai 8-10)",
     "Technikas",
-    "Mano Būstas Rekomendacija (NPS) (balais)",
     "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos",
     "Darbų vykdytojas",
 ]
@@ -297,6 +324,26 @@ def pick_description(row: Dict[str, str]) -> str:
             if v:
                 return v
     return ""
+
+
+def normalize_nps_score(row: Dict[str, str]) -> Optional[int]:
+    key = "Mano Būstas Rekomendacija (NPS)"
+    raw = str(row.get(key, "") or "").strip()
+    if not raw:
+        return None
+    low = raw.lower()
+    if "neturiu nuomon" in low or "nežinau" in low:
+        return 0
+    m = re.search(r"-?\d+", raw)
+    if not m:
+        return None
+    try:
+        n = int(m.group(0))
+    except Exception:
+        return None
+    if n < 0 or n > 10:
+        return None
+    return n
 
 
 def normalize_satisfaction_score(row: Dict[str, str]) -> Optional[int]:
@@ -400,6 +447,12 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
     reviews = []
     for r in reversed(recent):
         item = {k: normalize_score_zero(str(r.get(k, "")).strip()) for k in KIOSK_KEYS}
+        if not item.get("Mano Būstas Rekomendacija (NPS)", "").strip():
+            for key in r.keys():
+                key_s = str(key).strip()
+                if key_s == "Mano Būstas Rekomendacija (NPS)":
+                    item["Mano Būstas Rekomendacija (NPS)"] = normalize_score_zero(str(r.get(key, "")).strip())
+                    break
         item["Description"] = pick_description(r)
         item["_ts"] = str(r.get("_ts", "")).strip()
         reviews.append(item)
@@ -475,7 +528,6 @@ def build_kiosk_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_to
         "prevTopTechnicians": prev_top,
         "reviews": reviews,
     }
-
 
 def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 60) -> str:
     payload_json = json.dumps(payload, ensure_ascii=False)
@@ -669,7 +721,7 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
 
   function renderReview(r){
     const satKey = "Bendras pasitenkinimas MB suteiktomis paslaugomis";
-    const npsKey = "Mano Būstas Rekomendacija (NPS) (balais)";
+    const npsKey = "Mano Būstas Rekomendacija (NPS)";
     const npsCommentKey = "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos";
 
     const satScore = r[satKey] ?? "";
@@ -784,6 +836,878 @@ def render_kiosk_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_
             )
 
 
+def build_ka_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_top_count: int = 1) -> Dict[str, Any]:
+    from datetime import datetime
+
+    now = datetime.now()
+    cur_y, cur_m = now.year, now.month
+
+    if cur_m == 1:
+        prev_y, prev_m = cur_y - 1, 12
+    else:
+        prev_y, prev_m = cur_y, cur_m - 1
+
+    def in_prev_month(ts: str) -> bool:
+        ts = (ts or "").strip()
+        if not ts:
+            return False
+        try:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            return (dt.year == prev_y) and (dt.month == prev_m)
+        except Exception:
+            return False
+
+    def in_current_month(ts: str) -> bool:
+        ts = (ts or "").strip()
+        if not ts:
+            return False
+        try:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            return (dt.year == cur_y) and (dt.month == cur_m)
+        except Exception:
+            return False
+
+    filt = []
+    for r in rows:
+        ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
+        if ex not in KA_EXECUTORS:
+            continue
+        if not in_current_month(str(r.get("_ts", ""))):
+            continue
+        filt.append(r)
+
+    prev_filt = []
+    for r in rows:
+        ex = str(r.get("Darbų vykdytojas", "")).strip().lower()
+        if ex not in KA_EXECUTORS:
+            continue
+        if not in_prev_month(str(r.get("_ts", ""))):
+            continue
+        prev_filt.append(r)
+
+    recent = filt[-keep_last:]
+    ka_keys = [k for k in KIOSK_KEYS if k != "Technikas"]
+    reviews = []
+    for r in reversed(recent):
+        item = {k: normalize_score_zero(str(r.get(k, "")).strip()) for k in ka_keys}
+        if not item.get("Mano Būstas Rekomendacija (NPS)", "").strip():
+            for key in r.keys():
+                key_s = str(key).strip()
+                if key_s == "Mano Būstas Rekomendacija (NPS)":
+                    item["Mano Būstas Rekomendacija (NPS)"] = normalize_score_zero(str(r.get(key, "")).strip())
+                    break
+        item["Description"] = pick_description(r)
+        item["_ts"] = str(r.get("_ts", "")).strip()
+        reviews.append(item)
+
+    prev_exec_stats: Dict[str, Dict[str, float]] = {}
+    for r in prev_filt:
+        ex = str(r.get("Darbų vykdytojas", "")).strip()
+        if not ex:
+            continue
+        score = normalize_satisfaction_score(r)
+        if score is None:
+            continue
+        st = prev_exec_stats.setdefault(ex, {"sum": 0.0, "cnt": 0.0})
+        st["sum"] += float(score)
+        st["cnt"] += 1.0
+
+    prev_top = []
+    for ex, st in prev_exec_stats.items():
+        cnt = int(st["cnt"])
+        if cnt < min_top_count:
+            continue
+        avg = st["sum"] / st["cnt"]
+        prev_top.append({
+            "technikas": ex,
+            "avg": round(avg, 2),
+            "count": cnt,
+        })
+
+    prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    exec_stats: Dict[str, Dict[str, float]] = {}
+    for r in filt:
+        ex = str(r.get("Darbų vykdytojas", "")).strip()
+        if not ex:
+            continue
+        score = normalize_satisfaction_score(r)
+        if score is None:
+            continue
+        st = exec_stats.setdefault(ex, {"sum": 0.0, "cnt": 0.0})
+        st["sum"] += float(score)
+        st["cnt"] += 1.0
+
+    top = []
+    for ex, st in exec_stats.items():
+        cnt = int(st["cnt"])
+        if cnt < min_top_count:
+            continue
+        avg = st["sum"] / st["cnt"]
+        prev = next((p for p in prev_top if p["technikas"] == ex), None)
+        prev_avg = prev["avg"] if prev else None
+        delta = None
+        if prev_avg is not None:
+            delta = round(avg - prev_avg, 2)
+        top.append({
+            "technikas": ex,
+            "avg": round(avg, 2),
+            "count": cnt,
+            "prev_avg": prev_avg,
+            "delta": delta,
+        })
+
+    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    return {
+        "executor": "KA atstovai",
+        "lastUpdated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "month": f"{cur_y:04d}-{cur_m:02d}",
+        "topTechnicians": top,
+        "prevMonthLabel": f"{prev_y:04d}-{prev_m:02d}",
+        "prevTopTechnicians": prev_top,
+        "reviews": reviews,
+    }
+
+
+def render_ka_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 60) -> str:
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    template = """<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Atsiliepimai – KA TOP</title>
+  <style>
+    html, body { height: 100%; margin: 0; background:#112240; color:#e8eef6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    .wrap { height: 100%; display:flex; flex-direction:column; }
+    header { padding: 16px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(138,181,40,.25); background: #0d1b33; }
+    header h1 { margin:0; font-size: 20px; font-weight: 900; letter-spacing:.2px; }
+    header .meta { opacity:.85; font-size: 13px; }
+    .logo { display:flex; align-items:center; gap: 14px; }
+    .logo-text { font-size: 22px; font-weight: 900; }
+    .logo-text .green { color: #8AB528; }
+    .logo-text .white { color: #e8eef6; font-weight: 900; }
+
+    .stage { flex:1; display:flex; padding: 16px 20px; gap: 16px; }
+    .panel { border:1px solid rgba(138,181,40,.18); border-radius: 18px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,.35); background: rgba(255,255,255,.04); }
+    .top-panel { width: 34%; min-width: 360px; overflow:auto; }
+    .slide-panel { flex: 1; }
+
+    .k { opacity:.75; font-size: 12px; }
+    .k-title { opacity:.92; font-size: 18px; font-weight: 900; letter-spacing:.2px; color: #8AB528; }
+    .k-title-sub { opacity:.9; font-size: 16px; font-weight: 900; letter-spacing:.2px; }
+    .v { font-size: 16px; font-weight: 650; margin-top: 4px; word-break: break-word; line-height: 1.35; }
+    .big { font-size: 44px; font-weight: 950; letter-spacing: .2px; }
+
+    .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; border:1px solid rgba(138,181,40,.30); font-size: 12px; opacity:.95; background: rgba(138,181,40,.10); }
+
+    .badge { display:inline-block; padding: 6px 10px; border-radius: 12px; font-weight: 900; letter-spacing:.2px; }
+    .b-good { background: rgba(138,181,40,.25); border:1px solid rgba(138,181,40,.45); color: #c5e87a; }
+    .b-mid  { background: rgba(234,179,8,.22); border:1px solid rgba(234,179,8,.35); }
+    .b-bad  { background: rgba(239,68,68,.22); border:1px solid rgba(239,68,68,.35); }
+    .b-na   { background: rgba(148,163,184,.18); border:1px solid rgba(148,163,184,.30); }
+
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(138,181,40,.12); vertical-align:top; }
+    th { opacity:.7; font-weight:900; font-size: 12px; letter-spacing:.2px; }
+    td { font-size: 15px; }
+    .muted { opacity:.75; }
+
+    .row { display:flex; gap: 12px; align-items:baseline; flex-wrap:wrap; }
+    .divider { height: 12px; }
+
+    .footer { padding: 10px 20px; opacity:.75; font-size: 12px; border-top:1px solid rgba(138,181,40,.20); display:flex; justify-content:space-between; }
+
+    .navbtn {
+      cursor: pointer;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 900;
+      letter-spacing:.2px;
+      border:1px solid rgba(138,181,40,.30);
+      background: rgba(138,181,40,.12);
+      color:#e8eef6;
+      transition: transform .06s ease, background .12s ease;
+      user-select:none;
+    }
+    .navbtn:hover { background: rgba(138,181,40,.22); }
+    .navbtn:active { transform: translateY(1px); }
+    .navbtn:focus { outline: 2px solid rgba(138,181,40,.40); outline-offset: 2px; }
+
+    .tabs { display:flex; gap: 0; padding: 0 20px; background: #0d1b33; border-bottom: 1px solid rgba(138,181,40,.15); }
+    .tab { padding: 10px 20px; font-size: 14px; font-weight: 700; cursor: pointer; border-bottom: 3px solid transparent; opacity: .6; text-decoration: none; color: #e8eef6; }
+    .tab:hover { opacity: .85; }
+    .tab.active { border-bottom-color: #8AB528; opacity: 1; color: #8AB528; }
+
+    @media (min-width: 1600px) {
+      header h1 { font-size: 22px; }
+      td { font-size: 16px; }
+      .v { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <div class="logo-text"><span class="green">Mano</span> <span class="white">BŪSTAS</span></div>
+      <h1>Atsiliepimai <span class="pill" id="executorPill"></span></h1>
+    </div>
+    <div class="meta" id="status"></div>
+  </header>
+
+  <div class="tabs">
+    <a class="tab active" href="/ka">TOP KA</a>
+    <a class="tab" href="/ka/atstovai">TOP Klientų atstovai</a>
+  </div>
+
+  <div class="stage">
+    <div class="panel top-panel">
+      <div class="row">
+        <div style="font-weight:950; color:#8AB528">TOP KA</div>
+        <div class="pill">kriterijus: Pasitenkinimas suteiktomis paslaugomis</div>
+      </div>
+      <div class="divider"></div>
+      <div id="topTable"></div>
+      <div class="divider"></div>
+      <div class="row">
+        <div style="font-weight:900">Praeitas mėnuo</div>
+        <div class="pill" id="prevMonthPill"></div>
+      </div>
+      <div class="divider"></div>
+      <div id="prevTopTable"></div>
+      <div class="divider"></div>
+      <div class="k">Atnaujinta</div>
+      <div class="v" id="updatedInline"></div>
+    </div>
+
+    <div class="panel slide-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="pill" id="slideHint">arba mygtukai</div>
+        <div style="display:flex;gap:10px;">
+          <button id="prevBtn" class="navbtn" type="button">Atgal</button>
+          <button id="nextBtn" class="navbtn" type="button">Sekanti</button>
+        </div>
+      </div>
+      <div id="slide"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>F11 fullscreen</div>
+    <div id="updated"></div>
+  </div>
+</div>
+
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+  const SLIDE_SECONDS = __SLIDE_SECONDS__;
+  const payload = JSON.parse(document.getElementById("payload").textContent);
+  let slideIdx = 0;
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function scoreBadge(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) return '<span class="badge b-na"></span>';
+    if (n >= 9) return '<span class="badge b-good">'+esc(n)+'</span>';
+    if (n >= 7) return '<span class="badge b-mid">'+esc(n)+'</span>';
+    return '<span class="badge b-bad">'+esc(n)+'</span>';
+  }
+
+  function medal(i) {
+    if (i === 0) return "🥇";
+    if (i === 1) return "🥈";
+    if (i === 2) return "🥉";
+    return String(i+1);
+  }
+
+  function renderTop(p) {
+    const top = p.topTechnicians || [];
+    const rows = top.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td>
+          <strong>${esc(t.technikas)}</strong><br>
+          <span style="font-size:12px;opacity:.75">
+            ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : "Nėra praeito mėn. duomenų"}
+            ${t.delta !== null
+              ? (t.delta >= 0
+                  ? ' <span style="color:#8AB528"> +' + esc(t.delta) + '</span>'
+                  : ' <span style="color:#ef4444"> ' + esc(t.delta) + '</span>')
+              : ''}
+          </span>
+        </td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td class="muted" style="width:120px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    const table = `
+      <table>
+        <thead><tr><th></th><th>Darbų vykdytojas</th><th>Įvertinimas</th><th>Įvertinimų kiekis</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4" class="muted">Kol kas nėra duomenų.</td></tr>'}</tbody>
+      </table>
+    `;
+    document.getElementById("topTable").innerHTML = table;
+
+    const prev = p.prevTopTechnicians || [];
+    const prevRows = prev.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td><strong>${esc(t.technikas)}</strong></td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td class="muted" style="width:120px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    const prevTable = `
+      <table>
+        <thead><tr><th>#</th><th>Darbų vykdytojas</th><th>Įvertinimas</th><th>Įvertinimų kiekis</th></tr></thead>
+        <tbody>${prevRows || '<tr><td colspan="4" class="muted">Praeitą mėnesį duomenų nėra.</td></tr>'}</tbody>
+      </table>
+    `;
+    const pill = document.getElementById("prevMonthPill");
+    if (pill) pill.textContent = (p.prevMonthLabel || "");
+    const prevDiv = document.getElementById("prevTopTable");
+    if (prevDiv) prevDiv.innerHTML = prevTable;
+  }
+
+  function renderReview(r){
+    const satKey = "Bendras pasitenkinimas MB suteiktomis paslaugomis";
+    const npsKey = "Mano Būstas Rekomendacija (NPS)";
+    const npsCommentKey = "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos";
+
+    const satScore = r[satKey] ?? "";
+    const npsScore = r[npsKey] ?? "";
+    const npsComment = r[npsCommentKey] ?? "";
+
+    return `
+      <div class="k-title">Pasitenkinimas suteiktomis paslaugomis</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(satScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k-title-sub">Mano Būstas Rekomendacija (NPS)</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(npsScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k">NPS komentaras / pasiulymai</div>
+      <div class="v">${esc(npsComment) || ""}</div>
+
+      <div class="divider"></div>
+      <div style="border-top:1px solid rgba(255,255,255,.08); padding-top:12px;">
+        <div class="k">Darbų vykdytojas</div>
+        <div class="v">${esc(r["Darbų vykdytojas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Adresas</div>
+        <div class="v">${esc(r["Adresas"]) || ""}</div>
+
+        <div class="divider"></div>
+        <div class="k">Registracijos nr.</div>
+        <div class="v">${esc(r["Registracijos nr."]) || ""}</div>
+
+        <div class="divider"></div>
+        <div class="k">Pranešimo aprašymas</div>
+        <div class="v">${esc(r["Description"]) || ""}</div>
+
+        <div class="divider"></div>
+        <div class="k">Kontaktinis telefonas</div>
+        <div class="v">${esc(r["Kontaktinis telefonas"]) || ""}</div>
+      </div>
+    `;
+  }
+
+  function render(){
+    const slide = document.getElementById("slide");
+    const status = document.getElementById("status");
+    const updated = document.getElementById("updated");
+    const updatedInline = document.getElementById("updatedInline");
+    const executorPill = document.getElementById("executorPill");
+
+    executorPill.textContent = payload.executor || "";
+    updated.textContent = "lastUpdated: " + (payload.lastUpdated || "");
+    updatedInline.textContent = payload.lastUpdated || "";
+
+    renderTop(payload);
+
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+
+    if (reviews.length === 0) {
+      slide.innerHTML = '<div class="muted">Einamą mėnesį atsiliepimų nėra.</div>';
+      status.textContent = "Atsiliepimai 0";
+      return;
+    }
+
+    slideIdx = slideIdx % totalSlides;
+    slide.innerHTML = renderReview(reviews[slideIdx]);
+    status.textContent = "Atsiliepimai skaidre " + (slideIdx+1) + "/" + totalSlides;
+  }
+
+  function nextSlide(){
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+    if (totalSlides <= 1) return;
+    slideIdx = (slideIdx + 1) % totalSlides;
+    render();
+  }
+
+  function prevSlide(){
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+    if (totalSlides <= 1) return;
+    slideIdx = (slideIdx - 1 + totalSlides) % totalSlides;
+    render();
+  }
+
+  const nextBtn = document.getElementById("nextBtn");
+  const prevBtn = document.getElementById("prevBtn");
+  if (nextBtn) nextBtn.addEventListener("click", nextSlide);
+  if (prevBtn) prevBtn.addEventListener("click", prevSlide);
+
+  document.addEventListener("keydown", function(ev){
+    if (ev.key === "ArrowRight") { nextSlide(); }
+    if (ev.key === "ArrowLeft") { prevSlide(); }
+  });
+
+  render();
+
+  setInterval(function(){ nextSlide(); }, SLIDE_SECONDS * 1000);
+
+  const totalSlides = Math.max((payload.reviews || []).length, 1);
+  const cycleMs = totalSlides * SLIDE_SECONDS * 1000;
+  setTimeout(function(){ location.reload(); }, cycleMs);
+</script>
+</body>
+</html>"""
+
+    return (template
+            .replace("__PAYLOAD__", payload_json)
+            .replace("__SLIDE_SECONDS__", str(slide_seconds))
+            )
+
+
+def build_ka_atstovai_payload(rows: list[Dict[str, str]], keep_last: int = 200, min_top_count: int = 1) -> Dict[str, Any]:
+    from datetime import datetime
+
+    now = datetime.now()
+    cur_y, cur_m = now.year, now.month
+
+    if cur_m == 1:
+        prev_y, prev_m = cur_y - 1, 12
+    else:
+        prev_y, prev_m = cur_y, cur_m - 1
+
+    def in_prev_month(ts: str) -> bool:
+        ts = (ts or "").strip()
+        if not ts:
+            return False
+        try:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            return (dt.year == prev_y) and (dt.month == prev_m)
+        except Exception:
+            return False
+
+    def in_current_month(ts: str) -> bool:
+        ts = (ts or "").strip()
+        if not ts:
+            return False
+        try:
+            dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            return (dt.year == cur_y) and (dt.month == cur_m)
+        except Exception:
+            return False
+
+    filt = [r for r in rows if in_current_month(str(r.get("_ts", ""))) and str(r.get("Klientų atstovas", "")).strip()]
+    prev_filt = [r for r in rows if in_prev_month(str(r.get("_ts", ""))) and str(r.get("Klientų atstovas", "")).strip()]
+
+    recent = filt[-keep_last:]
+    ka_keys = list(KIOSK_KEYS)
+    reviews = []
+    for r in reversed(recent):
+        item = {k: normalize_score_zero(str(r.get(k, "")).strip()) for k in ka_keys}
+        if not item.get("Mano Būstas Rekomendacija (NPS)", "").strip():
+            for key in r.keys():
+                key_s = str(key).strip()
+                if key_s == "Mano Būstas Rekomendacija (NPS)":
+                    item["Mano Būstas Rekomendacija (NPS)"] = normalize_score_zero(str(r.get(key, "")).strip())
+                    break
+        item["Klientų atstovas"] = str(r.get("Klientų atstovas", "")).strip()
+        item["Description"] = pick_description(r)
+        item["_ts"] = str(r.get("_ts", "")).strip()
+        reviews.append(item)
+
+    def calc_stats(data_rows):
+        stats: Dict[str, Dict[str, float]] = {}
+        for r in data_rows:
+            ka = str(r.get("Klientų atstovas", "")).strip()
+            if not ka:
+                continue
+            sat = normalize_satisfaction_score(r)
+            nps = normalize_nps_score(r)
+            st = stats.setdefault(ka, {"sat_sum": 0.0, "sat_cnt": 0.0, "nps_sum": 0.0, "nps_cnt": 0.0})
+            if sat is not None:
+                st["sat_sum"] += float(sat)
+                st["sat_cnt"] += 1.0
+            if nps is not None:
+                st["nps_sum"] += float(nps)
+                st["nps_cnt"] += 1.0
+        return stats
+
+    prev_stats = calc_stats(prev_filt)
+    cur_stats = calc_stats(filt)
+
+    prev_top = []
+    for ka, st in prev_stats.items():
+        sat_cnt = int(st["sat_cnt"])
+        if sat_cnt < min_top_count:
+            continue
+        sat_avg = st["sat_sum"] / st["sat_cnt"] if st["sat_cnt"] else 0
+        nps_avg = st["nps_sum"] / st["nps_cnt"] if st["nps_cnt"] else 0
+        prev_top.append({
+            "technikas": ka,
+            "avg": round(sat_avg, 2),
+            "nps_avg": round(nps_avg, 2),
+            "count": sat_cnt,
+        })
+    prev_top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    top = []
+    for ka, st in cur_stats.items():
+        sat_cnt = int(st["sat_cnt"])
+        if sat_cnt < min_top_count:
+            continue
+        sat_avg = st["sat_sum"] / st["sat_cnt"] if st["sat_cnt"] else 0
+        nps_avg = st["nps_sum"] / st["nps_cnt"] if st["nps_cnt"] else 0
+        prev = next((p for p in prev_top if p["technikas"] == ka), None)
+        prev_avg = prev["avg"] if prev else None
+        delta = round(sat_avg - prev_avg, 2) if prev_avg is not None else None
+        top.append({
+            "technikas": ka,
+            "avg": round(sat_avg, 2),
+            "nps_avg": round(nps_avg, 2),
+            "count": sat_cnt,
+            "prev_avg": prev_avg,
+            "delta": delta,
+        })
+    top.sort(key=lambda x: (x["avg"], x["count"]), reverse=True)
+
+    return {
+        "executor": "Klientų atstovai",
+        "lastUpdated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "month": f"{cur_y:04d}-{cur_m:02d}",
+        "topTechnicians": top,
+        "prevMonthLabel": f"{prev_y:04d}-{prev_m:02d}",
+        "prevTopTechnicians": prev_top,
+        "reviews": reviews,
+    }
+
+
+def render_ka_atstovai_html(payload: Dict[str, Any], refresh_seconds: int = 20, slide_seconds: int = 60) -> str:
+    payload_json = json.dumps(payload, ensure_ascii=False)
+
+    template = """<!doctype html>
+<html lang="lt">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Atsiliepimai – Klientų atstovai TOP</title>
+  <style>
+    html, body { height: 100%; margin: 0; background:#112240; color:#e8eef6; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    .wrap { height: 100%; display:flex; flex-direction:column; }
+    header { padding: 16px 20px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(138,181,40,.25); background: #0d1b33; }
+    header h1 { margin:0; font-size: 20px; font-weight: 900; letter-spacing:.2px; }
+    header .meta { opacity:.85; font-size: 13px; }
+    .logo { display:flex; align-items:center; gap: 14px; }
+    .logo-text { font-size: 22px; font-weight: 900; }
+    .logo-text .green { color: #8AB528; }
+    .logo-text .white { color: #e8eef6; font-weight: 900; }
+
+    .tabs { display:flex; gap: 0; padding: 0 20px; background: #0d1b33; border-bottom: 1px solid rgba(138,181,40,.15); }
+    .tab { padding: 10px 20px; font-size: 14px; font-weight: 700; cursor: pointer; border-bottom: 3px solid transparent; opacity: .6; text-decoration: none; color: #e8eef6; }
+    .tab:hover { opacity: .85; }
+    .tab.active { border-bottom-color: #8AB528; opacity: 1; color: #8AB528; }
+
+    .stage { flex:1; display:flex; padding: 16px 20px; gap: 16px; }
+    .panel { border:1px solid rgba(138,181,40,.18); border-radius: 18px; padding: 16px; box-shadow: 0 12px 30px rgba(0,0,0,.35); background: rgba(255,255,255,.04); }
+    .top-panel { width: 42%; min-width: 420px; overflow:auto; }
+    .slide-panel { flex: 1; }
+
+    .k { opacity:.75; font-size: 12px; }
+    .k-title { opacity:.92; font-size: 18px; font-weight: 900; letter-spacing:.2px; color: #8AB528; }
+    .k-title-sub { opacity:.9; font-size: 16px; font-weight: 900; letter-spacing:.2px; }
+    .v { font-size: 16px; font-weight: 650; margin-top: 4px; word-break: break-word; line-height: 1.35; }
+    .big { font-size: 44px; font-weight: 950; letter-spacing: .2px; }
+
+    .pill { display:inline-block; padding: 6px 10px; border-radius: 999px; border:1px solid rgba(138,181,40,.30); font-size: 12px; opacity:.95; background: rgba(138,181,40,.10); }
+
+    .badge { display:inline-block; padding: 6px 10px; border-radius: 12px; font-weight: 900; letter-spacing:.2px; }
+    .b-good { background: rgba(138,181,40,.25); border:1px solid rgba(138,181,40,.45); color: #c5e87a; }
+    .b-mid  { background: rgba(234,179,8,.22); border:1px solid rgba(234,179,8,.35); }
+    .b-bad  { background: rgba(239,68,68,.22); border:1px solid rgba(239,68,68,.35); }
+    .b-na   { background: rgba(148,163,184,.18); border:1px solid rgba(148,163,184,.30); }
+
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding: 10px 8px; border-bottom:1px solid rgba(138,181,40,.12); vertical-align:top; }
+    th { opacity:.7; font-weight:900; font-size: 12px; letter-spacing:.2px; }
+    td { font-size: 15px; }
+    .muted { opacity:.75; }
+
+    .row { display:flex; gap: 12px; align-items:baseline; flex-wrap:wrap; }
+    .divider { height: 12px; }
+
+    .footer { padding: 10px 20px; opacity:.75; font-size: 12px; border-top:1px solid rgba(138,181,40,.20); display:flex; justify-content:space-between; }
+
+    .navbtn {
+      cursor: pointer; border-radius: 14px; padding: 10px 14px; font-weight: 900; letter-spacing:.2px;
+      border:1px solid rgba(138,181,40,.30); background: rgba(138,181,40,.12); color:#e8eef6;
+      transition: transform .06s ease, background .12s ease; user-select:none;
+    }
+    .navbtn:hover { background: rgba(138,181,40,.22); }
+    .navbtn:active { transform: translateY(1px); }
+    .navbtn:focus { outline: 2px solid rgba(138,181,40,.40); outline-offset: 2px; }
+
+    @media (min-width: 1600px) { header h1 { font-size: 22px; } td { font-size: 16px; } .v { font-size: 18px; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">
+      <div class="logo-text"><span class="green">Mano</span> <span class="white">BŪSTAS</span></div>
+      <h1>Atsiliepimai <span class="pill" id="executorPill"></span></h1>
+    </div>
+    <div class="meta" id="status"></div>
+  </header>
+
+  <div class="tabs">
+    <a class="tab" href="/ka">TOP KA</a>
+    <a class="tab active" href="/ka/atstovai">TOP Klientų atstovai</a>
+  </div>
+
+  <div class="stage">
+    <div class="panel top-panel">
+      <div class="row">
+        <div style="font-weight:950; color:#8AB528">TOP Klientų atstovai</div>
+        <div class="pill">Pasitenkinimas + NPS</div>
+      </div>
+      <div class="divider"></div>
+      <div id="topTable"></div>
+      <div class="divider"></div>
+      <div class="row">
+        <div style="font-weight:900">Praeitas mėnuo</div>
+        <div class="pill" id="prevMonthPill"></div>
+      </div>
+      <div class="divider"></div>
+      <div id="prevTopTable"></div>
+      <div class="divider"></div>
+      <div class="k">Atnaujinta</div>
+      <div class="v" id="updatedInline"></div>
+    </div>
+
+    <div class="panel slide-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px;">
+        <div class="pill" id="slideHint">⬅️ ➡️ arba mygtukai</div>
+        <div style="display:flex;gap:10px;">
+          <button id="prevBtn" class="navbtn" type="button">◀ Atgal</button>
+          <button id="nextBtn" class="navbtn" type="button">Sekanti ▶</button>
+        </div>
+      </div>
+      <div id="slide"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div>F11 → fullscreen</div>
+    <div id="updated"></div>
+  </div>
+</div>
+
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+  const SLIDE_SECONDS = __SLIDE_SECONDS__;
+  const payload = JSON.parse(document.getElementById("payload").textContent);
+  let slideIdx = 0;
+
+  function esc(s) {
+    return String(s ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  }
+
+  function scoreBadge(score) {
+    const n = Number(score);
+    if (!Number.isFinite(n)) return '<span class="badge b-na">—</span>';
+    if (n >= 9) return '<span class="badge b-good">'+esc(n)+'</span>';
+    if (n >= 7) return '<span class="badge b-mid">'+esc(n)+'</span>';
+    return '<span class="badge b-bad">'+esc(n)+'</span>';
+  }
+
+  function medal(i) {
+    if (i === 0) return "🥇";
+    if (i === 1) return "🥈";
+    if (i === 2) return "🥉";
+    return String(i+1);
+  }
+
+  function renderTop(p) {
+    const top = p.topTechnicians || [];
+    const rows = top.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td>
+          <strong>${esc(t.technikas)}</strong><br>
+          <span style="font-size:12px;opacity:.75">
+            ${t.prev_avg !== null ? "Praeitą mėn.: " + esc(t.prev_avg) : "Nėra praeito mėn. duomenų"}
+            ${t.delta !== null
+              ? (t.delta >= 0
+                  ? ' <span style="color:#8AB528"> +' + esc(t.delta) + '</span>'
+                  : ' <span style="color:#ef4444"> ' + esc(t.delta) + '</span>')
+              : ''}
+          </span>
+        </td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td style="width:84px">${esc(t.nps_avg ?? "—")}</td>
+        <td class="muted" style="width:60px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("topTable").innerHTML = `
+      <table>
+        <thead><tr><th></th><th>Klientų atstovas</th><th>Pasitenkini-<br>mas</th><th>NPS</th><th>Kiekis</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" class="muted">Kol kas nėra duomenų.</td></tr>'}</tbody>
+      </table>
+    `;
+
+    const prev = p.prevTopTechnicians || [];
+    const prevRows = prev.map((t, i) => `
+      <tr>
+        <td style="width:44px">${medal(i)}</td>
+        <td><strong>${esc(t.technikas)}</strong></td>
+        <td style="width:84px">${esc(t.avg)}</td>
+        <td style="width:84px">${esc(t.nps_avg ?? "—")}</td>
+        <td class="muted" style="width:60px">${esc(t.count)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("prevTopTable").innerHTML = `
+      <table>
+        <thead><tr><th>#</th><th>Klientų atstovas</th><th>Pasitenkini-<br>mas</th><th>NPS</th><th>Kiekis</th></tr></thead>
+        <tbody>${prevRows || '<tr><td colspan="5" class="muted">Praeitą mėnesį duomenų nėra.</td></tr>'}</tbody>
+      </table>
+    `;
+    const pill = document.getElementById("prevMonthPill");
+    if (pill) pill.textContent = (p.prevMonthLabel || "");
+  }
+
+  function renderReview(r){
+    const satKey = "Bendras pasitenkinimas MB suteiktomis paslaugomis";
+    const npsKey = "Mano Būstas Rekomendacija (NPS)";
+    const npsCommentKey = "Mano Būstas Rekomendacija (NPS) - Kas paskatino šitaip įvertinti? Jūsų pasiūlymai; rekomendacijos";
+
+    const satScore = r[satKey] ?? "";
+    const npsScore = r[npsKey] ?? "";
+    const npsComment = r[npsCommentKey] ?? "";
+
+    return `
+      <div class="k-title">Pasitenkinimas suteiktomis paslaugomis</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(satScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k-title-sub">Mano Būstas Rekomendacija (NPS)</div>
+      <div class="divider"></div>
+      <div class="big">${scoreBadge(npsScore)} <span style="font-size:20px;opacity:.8;font-weight:900">/ 10</span></div>
+
+      <div class="divider"></div>
+      <div class="k">NPS komentaras / pasiūlymai</div>
+      <div class="v">${esc(npsComment) || "—"}</div>
+
+      <div class="divider"></div>
+      <div style="border-top:1px solid rgba(255,255,255,.08); padding-top:12px;">
+        <div class="k">Klientų atstovas</div>
+        <div class="v">${esc(r["Klientų atstovas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Darbų vykdytojas</div>
+        <div class="v">${esc(r["Darbų vykdytojas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Technikas</div>
+        <div class="v">${esc(r["Technikas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Adresas</div>
+        <div class="v">${esc(r["Adresas"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Registracijos nr.</div>
+        <div class="v">${esc(r["Registracijos nr."]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Pranešimo aprašymas</div>
+        <div class="v">${esc(r["Description"]) || "—"}</div>
+
+        <div class="divider"></div>
+        <div class="k">Kontaktinis telefonas</div>
+        <div class="v">${esc(r["Kontaktinis telefonas"]) || "—"}</div>
+      </div>
+    `;
+  }
+
+  function render(){
+    const slide = document.getElementById("slide");
+    const status = document.getElementById("status");
+    const updated = document.getElementById("updated");
+    const updatedInline = document.getElementById("updatedInline");
+    const executorPill = document.getElementById("executorPill");
+
+    executorPill.textContent = payload.executor || "";
+    updated.textContent = "lastUpdated: " + (payload.lastUpdated || "");
+    updatedInline.textContent = payload.lastUpdated || "";
+
+    renderTop(payload);
+
+    const reviews = payload.reviews || [];
+    const totalSlides = Math.max(reviews.length, 1);
+
+    if (reviews.length === 0) {
+      slide.innerHTML = '<div class="muted">Einamą mėnesį atsiliepimų nėra.</div>';
+      status.textContent = "Atsiliepimai • 0";
+      return;
+    }
+
+    slideIdx = slideIdx % totalSlides;
+    slide.innerHTML = renderReview(reviews[slideIdx]);
+    status.textContent = "Atsiliepimai • skaidrė " + (slideIdx+1) + "/" + totalSlides;
+  }
+
+  function nextSlide(){ const r = payload.reviews || []; const t = Math.max(r.length,1); if(t<=1) return; slideIdx=(slideIdx+1)%t; render(); }
+  function prevSlide(){ const r = payload.reviews || []; const t = Math.max(r.length,1); if(t<=1) return; slideIdx=(slideIdx-1+t)%t; render(); }
+
+  document.getElementById("nextBtn").addEventListener("click", nextSlide);
+  document.getElementById("prevBtn").addEventListener("click", prevSlide);
+  document.addEventListener("keydown", function(ev){ if(ev.key==="ArrowRight") nextSlide(); if(ev.key==="ArrowLeft") prevSlide(); });
+
+  render();
+  setInterval(function(){ nextSlide(); }, SLIDE_SECONDS * 1000);
+  const totalSlides = Math.max((payload.reviews || []).length, 1);
+  setTimeout(function(){ location.reload(); }, totalSlides * SLIDE_SECONDS * 1000);
+</script>
+</body>
+</html>"""
+
+    return (template
+            .replace("__PAYLOAD__", payload_json)
+            .replace("__SLIDE_SECONDS__", str(slide_seconds))
+            )
+
+
 def update_public_outputs(data: bytes) -> None:
     try:
         rows = parse_all_rows(data)
@@ -795,6 +1719,24 @@ def update_public_outputs(data: bytes) -> None:
         log(f"[INFO] kiosk updated -> {PUBLIC_INDEX_HTML}")
     except Exception as e:
         log(f"[WARN] kiosk output failed: {e}")
+
+    try:
+        rows = parse_all_rows(data)
+        ka_payload = build_ka_payload(rows)
+        PUBLIC_KA_JSON.write_text(json.dumps(ka_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        PUBLIC_KA_HTML.write_text(render_ka_html(ka_payload), encoding="utf-8")
+        log(f"[INFO] KA kiosk updated -> {PUBLIC_KA_HTML}")
+    except Exception as e:
+        log(f"[WARN] KA kiosk output failed: {e}")
+
+    try:
+        rows = parse_all_rows(data)
+        atstovai_payload = build_ka_atstovai_payload(rows)
+        PUBLIC_KA_ATSTOVAI_JSON.write_text(json.dumps(atstovai_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        PUBLIC_KA_ATSTOVAI_HTML.write_text(render_ka_atstovai_html(atstovai_payload), encoding="utf-8")
+        log(f"[INFO] KA atstovai updated -> {PUBLIC_KA_ATSTOVAI_HTML}")
+    except Exception as e:
+        log(f"[WARN] KA atstovai output failed: {e}")
 
 
 def run_once(last_hash: Optional[str]) -> Optional[str]:
